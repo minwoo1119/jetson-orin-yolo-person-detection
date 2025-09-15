@@ -17,7 +17,7 @@ except ImportError:
 # ----------------------------------------------------
 
 try:
-    model_path = os.path.join('yolo_model', 'yolo11n.pt')
+    model_path = os.path.join('yolo_model', 'yolov8n.pt')
     model = YOLO(model_path)
     print(f"YOLO 모델을 성공적으로 로드했습니다: {model_path}")
 except Exception as e:
@@ -102,12 +102,36 @@ def run_person_detection(video_path, video_type):
         if elapsed_time > 1:
             fps = frame_count / elapsed_time
             
-            # 화면에 정보 띄우기
-            cv2.putText(annotated_frame, f"FPS: {fps:.2f}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
-            cv2.putText(annotated_frame, f"CPU: {cpu_percent:.1f}%", (10, 70), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+            # 텍스트와 배경을 위한 변수
+            text_color = (255, 255, 255) # 흰색 텍스트
+            bg_color = (0, 0, 0) # 검은색 배경
+            alpha = 0.5 # 배경 투명도 (0.0은 투명, 1.0은 불투명)
+            
+            # FPS, CPU, GPU 정보를 담을 문자열 리스트
+            info_texts = [
+                f"FPS: {fps:.2f}",
+                f"CPU: {cpu_percent:.1f}%"
+            ]
             if HAS_GPU:
-                cv2.putText(annotated_frame, f"GPU: {gpu_percent:.1f}%", (10, 110), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
-                cv2.putText(annotated_frame, f"GPU Mem: {gpu_mem_percent:.1f}%", (10, 150), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+                info_texts.append(f"GPU: {gpu_percent:.1f}%")
+                info_texts.append(f"GPU Mem: {gpu_mem_percent:.1f}%")
+            
+            # 오버레이 이미지 생성
+            overlay = annotated_frame.copy()
+            
+            # 배경 사각형 그리기
+            # 필요한 경우 좌표와 사각형 크기 조정
+            box_height = 40 * len(info_texts) + 10
+            cv2.rectangle(overlay, (0, 0), (280, box_height), bg_color, -1)
+            
+            # 원본 프레임과 오버레이를 합성
+            cv2.addWeighted(overlay, alpha, annotated_frame, 1 - alpha, 0, annotated_frame)
+            
+            # 텍스트 그리기
+            y_pos = 40
+            for text in info_texts:
+                cv2.putText(annotated_frame, text, (10, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 1, text_color, 2)
+                y_pos += 40
             
             # 터미널에 로그로 출력
             print(f"FPS: {fps:.2f} | CPU: {cpu_percent:.1f}%", end="")
