@@ -3,11 +3,14 @@ from ultralytics import YOLO
 import time
 import os
 import psutil
+import torch
 
 # GPU 관련 라이브러리는 try-except로 처리하여 GPU 없는 환경에서도 동작하도록 함
 try:
     import pynvml
-    HAS_GPU = True
+    HAS_GPU = torch.cuda.is_available()
+    if not HAS_GPU:
+        print("NVIDIA GPU가 감지되었지만, CUDA를 사용할 수 없습니다. CPU를 사용합니다.")
 except ImportError:
     HAS_GPU = False
     print("pynvml 라이브러리가 설치되지 않았거나, NVIDIA GPU 환경이 아닙니다. CPU를 사용합니다.")
@@ -86,6 +89,9 @@ def run_person_detection(video_path, video_type):
         
         # 시스템 정보 가져오기
         cpu_percent = psutil.cpu_percent()
+        cpu_mem = psutil.virtual_memory()
+        cpu_mem_percent = cpu_mem.percent
+
         gpu_percent, gpu_mem_percent = 0, 0
         if gpu_handle:
             try:
@@ -110,7 +116,8 @@ def run_person_detection(video_path, video_type):
             # FPS, CPU, GPU 정보를 담을 문자열 리스트
             info_texts = [
                 f"FPS: {fps:.2f}",
-                f"CPU: {cpu_percent:.1f}%"
+                f"CPU: {cpu_percent:.1f}%",
+                f"RAM: {cpu_mem_percent:.1f}%"
             ]
             if HAS_GPU:
                 info_texts.append(f"GPU: {gpu_percent:.1f}%")
@@ -134,7 +141,7 @@ def run_person_detection(video_path, video_type):
                 y_pos += 40
             
             # 터미널에 로그로 출력
-            print(f"FPS: {fps:.2f} | CPU: {cpu_percent:.1f}%", end="")
+            print(f"FPS: {fps:.2f} | CPU: {cpu_percent:.1f}% | RAM: {cpu_mem_percent:.1f}%", end="")
             if HAS_GPU:
                 print(f" | GPU: {gpu_percent:.1f}% | GPU Mem: {gpu_mem_percent:.1f}%")
             else:
@@ -165,6 +172,9 @@ if __name__ == "__main__":
         run_person_detection(video_path, video_type)
 
     if HAS_GPU and gpu_handle:
-        pynvml.nvmlShutdown()
+        try:
+            pynvml.nvmlShutdown()
+        except pynvml.NVMLError as err:
+            pass
 
     print("\n모든 비디오 탐지 테스트가 완료되었습니다.")
