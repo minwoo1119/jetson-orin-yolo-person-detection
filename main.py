@@ -30,7 +30,7 @@ except Exception as e:
 
 video_files = {
     # "Minimal": os.path.join('videos', 'minimal.mp4'),
-    "Typical": os.path.join('videos', 'typical.mp4'),
+    "Typical": os.path.join('videos', 'video.webm'),
     # "Stress": os.path.join('videos', 'stress.mp4')
 }
 
