@@ -20,7 +20,7 @@ except ImportError:
 # ----------------------------------------------------
 
 try:
-    model_path = os.path.join('yolo_model', 'yolov8n.pt')
+    model_path = os.path.join('yolo_model', 'yolo11n.pt')
     model = YOLO(model_path)
     print(f"YOLO 모델을 성공적으로 로드했습니다: {model_path}")
 except Exception as e:
@@ -177,4 +177,6 @@ if __name__ == "__main__":
         except pynvml.NVMLError as err:
             pass
 
+    print("\n모든 비디오 탐지 테스트가 완료되었습니다.")
+    print("\n모든 비디오 탐지 테스트가 완료되었습니다.")
     print("\n모든 비디오 탐지 테스트가 완료되었습니다.")

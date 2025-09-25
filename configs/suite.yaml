@@ -1,0 +1,54 @@
+# === 보드 라벨 ===
+board: "jetson_orin_nano"   # "raspberry_pi" | "jetson_orin_nano" | "tda4um"
+
+# === 러너 공통 파라미터 ===
+duration_sec: 60
+warmup_sec: 5
+payload_size: 256
+send_rate: 50
+
+# bench_client(HTTPS/DTLS용 C++ 바이너리) 경로
+bench_client_path: "/opt/bench/bench_client"
+
+# === 각 프로토콜의 서버/브로커/H3엔드포인트 ===
+bench_server:
+  https:
+    host: "securityprotocol.store"
+    port: 8000
+    ca: "/opt/sec/ca.pem"
+    cert: "/opt/sec/server.pem"
+    key: "/opt/sec/server.key"
+  dtls:
+    host: "securityprotocol.store"
+    port: 9001
+    ca: "/opt/sec/ca.pem"
+    cert: "/opt/sec/server.pem"
+    key: "/opt/sec/server.key"
+  mqtt:
+    host: "securityprotocol.store"
+    port: 8883
+    ca: "/opt/sec/ca.pem"     # 선택
+  http3:
+    host: "securityprotocol.store"
+    port: 8000
+  coap:
+    host: "securityprotocol.store"
+    port: 5683
+
+# === 테스트 매트릭스 : 프로토콜별 암호 알고리즘 목록 ===
+# - TLS/DTLS: AES-GCM / CHACHA20 / AES-CCM-8 강제
+# - HTTP/3: aesgcm|chacha20 (aioquic cipher_suites 사용)
+# - MQTT/TLS: aesgcm|chacha20 시도(환경에 따라 제한; 실제 협상 결과를 로그로 남김)
+# - CoAP: (기본) 평문 / (선택) 앱-레이어 AEAD(aesccm|chacha20) 사용 예시 포함
+matrix:
+  https: ["aesgcm", "chacha20", "aesccm8"]
+  # dtls:  ["aesgcm", "chacha20", "aesccm8"]
+  # mqtt:  ["aesgcm", "chacha20"]
+  # http3: ["aesgcm", "chacha20"]
+  # coap:  ["plain"]  # "aesccm", "chacha20" 로 확장 가능(앱-레이어 AEAD)
+
+# === YOLO 설정 ===
+yolo:
+  model_path: "yolo_model/yolov8n.pt"
+  videos:
+    Typical: "videos/video.webm"
