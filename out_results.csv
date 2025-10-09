@@ -1,4 +1,13 @@
 board,video,proto,cipher,avg_fps,cpu_pct,gpu_pct,mem_pct,gpu_mem_pct,rtt_p50_ms,rtt_p95_ms,rtt_p99_ms,note
-jetson_orin_nano,Typical,https,aesgcm,1.178,222.46,0.00,4.76,0.00,11.537,16.024,20.882,
-jetson_orin_nano,Typical,https,chacha20,1.475,248.30,0.00,4.79,0.00,10.898,14.415,18.644,
-jetson_orin_nano,Typical,https,aesccm8,1.439,242.94,0.00,4.88,0.00,11.073,15.784,20.748,
+jetson_orin_nano,Typical,https,aesgcm,5.418,108.43,36.63,11.99,0.00,4073.508,8196.333,8200.722,
+jetson_orin_nano,Typical,https,aes256gcm,5.799,109.25,36.36,12.78,0.00,4104.333,8258.132,8262.482,
+jetson_orin_nano,Typical,https,chacha20,5.651,109.46,43.62,13.31,0.00,4135.445,8320.413,8324.711,
+jetson_orin_nano,Typical,dtls,aesgcm,0,0,0,0,0,0,0,0,0,run failed: DTLS transport not available in this aiocoap version. Try installing with 'pip install aiocoap[dtls]' or a different version.
+jetson_orin_nano,Typical,dtls,aes256gcm,0,0,0,0,0,0,0,0,0,run failed: DTLS transport not available in this aiocoap version. Try installing with 'pip install aiocoap[dtls]' or a different version.
+jetson_orin_nano,Typical,dtls,chacha20,0,0,0,0,0,0,0,0,0,run failed: DTLS transport not available in this aiocoap version. Try installing with 'pip install aiocoap[dtls]' or a different version.
+jetson_orin_nano,Typical,mqtt,aesgcm,7.208,99.68,33.70,13.42,0.00,0.000,0.000,0.000,no rtt results
+jetson_orin_nano,Typical,mqtt,aes256gcm,7.354,100.22,36.97,13.45,0.00,0.000,0.000,0.000,no rtt results
+jetson_orin_nano,Typical,mqtt,chacha20,7.903,107.76,30.71,13.45,0.00,0.000,0.000,0.000,no rtt results
+jetson_orin_nano,Typical,http3,aesgcm,7.514,105.94,32.69,13.62,0.00,4258.996,8523.954,8524.503,
+jetson_orin_nano,Typical,http3,aes256gcm,7.507,105.81,25.49,13.70,0.00,4290.259,8586.546,8587.091,
+jetson_orin_nano,Typical,http3,chacha20,7.095,101.49,38.64,13.67,0.00,4321.485,8649.095,8649.641,
