@@ -3,10 +3,9 @@ import time
 import threading
 import psutil
 import cv2
-import os
 from ultralytics import YOLO
+import numpy as np
 
-# pynvml을 사용하되, 설치되지 않았을 경우를 대비한 예외 처리
 try:
     import pynvml
     pynvml.nvmlInit()
@@ -14,105 +13,148 @@ try:
 except (ImportError, pynvml.NVMLError):
     NVML_AVAILABLE = False
 
+try:
+    from jtop import jtop
+    JTOP_AVAILABLE = True
+except ImportError:
+    JTOP_AVAILABLE = False
+
 class YOLORunner:
     def __init__(self, model_path):
+        import torch
+        # Use GPU if available
+        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
         self.model = YOLO(model_path)
+        if self.device == 'cuda':
+            print(f"Using GPU: {torch.cuda.get_device_name(0)}")
+        else:
+            print(f"Using CPU")
         self.stats = {
-            "cpu_pct": [], "mem_pct": [],
-            "gpu_pct": [], "gpu_mem_pct": [],
+            "time_sec": [],
+            "cpu_pct": [],
+            "mem_pct": [],
+            "gpu_pct": [],
+            "gpu_mem_pct": [],
+            "interval_fps": [],
+            "rtt_ms": [],
         }
         self.stop_event = threading.Event()
+        self.frame_count_interval = 0
+        self.rtt_data = None
+        self.jtop_instance = None
+        self.jtop_lock = threading.Lock()
 
     def _monitor_resources(self, process, duration_sec):
-        start_time = time.time()
-        gpu_handle = None
-        if NVML_AVAILABLE:
+        # Try to use jtop for Jetson GPU monitoring
+        if JTOP_AVAILABLE and self.jtop_instance is None:
             try:
-                gpu_handle = pynvml.nvmlDeviceGetHandleByIndex(0)
-            except pynvml.NVMLError:
-                gpu_handle = None
+                self.jtop_instance = jtop()
+                self.jtop_instance.start()
+            except Exception as e:
+                print(f"Failed to start jtop: {e}")
+                self.jtop_instance = None
 
-        while not self.stop_event.is_set() and (time.time() - start_time) < duration_sec:
+        for sec in range(duration_sec):
+            if self.stop_event.is_set():
+                break
+
+            time.sleep(1.0) # 1초 대기
+
+            self.stats["time_sec"].append(sec + 1)
             self.stats["cpu_pct"].append(process.cpu_percent())
             self.stats["mem_pct"].append(process.memory_percent())
-            if gpu_handle:
-                try:
-                    gpu_util = pynvml.nvmlDeviceGetUtilizationRates(gpu_handle)
-                    gpu_mem = pynvml.nvmlDeviceGetMemoryInfo(gpu_handle)
-                    self.stats["gpu_pct"].append(gpu_util.gpu)
-                    self.stats["gpu_mem_pct"].append(100 * gpu_mem.used / gpu_mem.total)
-                except pynvml.NVMLError:
-                    self.stats["gpu_pct"].append(0)
-                    self.stats["gpu_mem_pct"].append(0)
-            else:
-                self.stats["gpu_pct"].append(0)
-                self.stats["gpu_mem_pct"].append(0)
-            time.sleep(0.5)
 
-    def run_video(self, video_path, duration_sec, overlay=False):
-        for key in self.stats: self.stats[key].clear()
+            # Get GPU stats from jtop if available
+            gpu_pct = 0
+            gpu_mem_pct = 0
+            if self.jtop_instance:
+                try:
+                    with self.jtop_lock:
+                        if self.jtop_instance.ok():
+                            gpu_pct = self.jtop_instance.stats.get('GPU', 0)
+                            # Get GPU memory usage
+                            gpu_mem = self.jtop_instance.memory.get('GPU', {})
+                            if 'used' in gpu_mem and 'tot' in gpu_mem and gpu_mem['tot'] > 0:
+                                gpu_mem_pct = (gpu_mem['used'] / gpu_mem['tot']) * 100
+                except Exception:
+                    pass
+
+            self.stats["gpu_pct"].append(gpu_pct)
+            self.stats["gpu_mem_pct"].append(gpu_mem_pct)
+
+            self.stats["interval_fps"].append(self.frame_count_interval)
+            self.frame_count_interval = 0
+
+            # Calculate average RTT for this second from rtt_data
+            current_time = time.time()
+            rtt_ms = 0.0
+            if self.rtt_data:
+                recent_rtts = [rtt_sec * 1000 for rtt_sec, timestamp in self.rtt_data
+                              if current_time - timestamp <= 1.0]
+                rtt_ms = np.mean(recent_rtts) if recent_rtts else 0.0
+            self.stats["rtt_ms"].append(rtt_ms)
+
+    def run_video(self, video_path, duration_sec, rtt_data=None, overlay=False):
+        for key in self.stats:
+            self.stats[key].clear()
         self.stop_event.clear()
+        self.frame_count_interval = 0
+        self.rtt_data = rtt_data
 
         cap = cv2.VideoCapture(video_path)
         if not cap.isOpened():
             raise IOError(f"Cannot open video file: {video_path}")
 
         current_process = psutil.Process()
-        monitor_thread = threading.Thread(target=self._monitor_resources, args=(current_process, duration_sec), daemon=True)
+        # Call cpu_percent() once before the loop to initialize it
+        current_process.cpu_percent()
+        
+        monitor_thread = threading.Thread(
+            target=self._monitor_resources,
+            args=(current_process, duration_sec),
+            daemon=True
+        )
         monitor_thread.start()
 
-        frame_count = 0
         start_time = time.time()
-        window_name = "YOLO Benchmark"
-
-        if overlay:
-            # Check for display environment
-            if 'DISPLAY' not in os.environ:
-                print("WARNING: No display environment found. Video will not be shown.")
-                overlay = False
-            else:
-                cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
-
-        while True:
-            elapsed_time = time.time() - start_time
-            if elapsed_time >= duration_sec:
-                break
-
+        total_frames = 0
+        while time.time() - start_time < duration_sec:
             ret, frame = cap.read()
             if not ret:
                 cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
                 continue
 
-            # Run tracking, get results
-            results = self.model.track(source=frame, persist=True, verbose=False)
-            frame_count += 1
+            self.model.track(source=frame, persist=True, verbose=False, device=self.device)
+            self.frame_count_interval += 1
+            total_frames += 1
 
-            if overlay and results:
-                # Get the annotated frame and display it in our own window
-                annotated_frame = results[0].plot()
-                cv2.imshow(window_name, annotated_frame)
-                if cv2.waitKey(1) & 0xFF == ord('q'):
-                    break
-        
         self.stop_event.set()
         monitor_thread.join()
         cap.release()
-        if overlay: cv2.destroyAllWindows()
+
+        # Close jtop instance
+        if self.jtop_instance:
+            try:
+                self.jtop_instance.close()
+                self.jtop_instance = None
+            except Exception:
+                pass
 
         actual_duration = time.time() - start_time
-        avg_fps = frame_count / actual_duration if actual_duration > 0 else 0
-        
-        avg_stats = {}
-        for key, values in self.stats.items():
-            avg_stats[key] = sum(values) / len(values) if values else 0
+        avg_fps = total_frames / actual_duration if actual_duration > 0 else 0
 
-        return {
+        summary = {
+            "start_time": start_time,
             "avg_fps": avg_fps,
-            "cpu_pct": avg_stats["cpu_pct"],
-            "gpu_pct": avg_stats["gpu_pct"],
-            "mem_pct": avg_stats["mem_pct"],
-            "gpu_mem_pct": avg_stats["gpu_mem_pct"],
+            "cpu_pct": np.mean(self.stats["cpu_pct"]) if self.stats["cpu_pct"] else 0,
+            "gpu_pct": np.mean(self.stats["gpu_pct"]) if self.stats["gpu_pct"] else 0,
+            "mem_pct": np.mean(self.stats["mem_pct"]) if self.stats["mem_pct"] else 0,
+            "gpu_mem_pct": np.mean(self.stats["gpu_mem_pct"]) if self.stats["gpu_mem_pct"] else 0,
         }
 
+        return summary
+
 if NVML_AVAILABLE:
-    pynvml.nvmlShutdown()
+    # This should be called when the application exits.
+    # A better design would be to manage this in the main script.
+    pass

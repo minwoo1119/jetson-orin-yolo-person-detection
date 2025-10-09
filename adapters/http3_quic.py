@@ -5,7 +5,7 @@ import time
 import random
 import os
 import threading
-from typing import Deque, Dict, Optional, List, cast
+from typing import Deque, Dict, Optional, List, cast, Tuple
 from collections import deque
 
 from .base import ProtocolAdapter
@@ -16,7 +16,7 @@ from aioquic.h3.events import DataReceived, H3Event
 from aioquic.quic.configuration import QuicConfiguration
 from aioquic.quic.events import QuicEvent
 
-# Packet header definition
+FIXED_PACKET_SIZE = 64
 BENCH_HDR_FORMAT = "!IHQQI"
 BENCH_HDR_SIZE = struct.calcsize(BENCH_HDR_FORMAT)
 BENCH_HDR_MAGIC = 0xDEADBEEF
@@ -26,25 +26,24 @@ class H3ClientProtocol(QuicConnectionProtocol):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._http: Optional[H3Connection] = None
-        self.rtt_results: Deque[float] = deque()
+        self.rtt_results: Deque[Tuple[float, float]] = deque()
         self._sent_packets: Dict[int, int] = {}
+        self._start_time: float = 0
 
     def quic_event_received(self, event: QuicEvent):
         if self._http is None:
             self._http = H3Connection(self._quic)
         
-        # Correct event handling pattern for aioquic H3
-        # Pass the QUIC event to the H3 connection, which returns a list of H3 events.
         for h3_event in self._http.handle_event(event):
             if isinstance(h3_event, DataReceived):
                 if h3_event.stream_id in self._sent_packets:
                     t_send_ns = self._sent_packets[h3_event.stream_id]
                     if len(h3_event.data) >= BENCH_HDR_SIZE:
                         try:
-                            magic, _, seq, resp_t_send_ns, _ = struct.unpack(BENCH_HDR_FORMAT, h3_event.data[:BENCH_HDR_SIZE])
+                            magic, _, seq, _, _ = struct.unpack(BENCH_HDR_FORMAT, h3_event.data[:BENCH_HDR_SIZE])
                             if magic == BENCH_HDR_MAGIC:
                                 rtt_ns = time.monotonic_ns() - t_send_ns
-                                self.rtt_results.append(rtt_ns / 1e9)
+                                self.rtt_results.append((rtt_ns / 1e9, time.monotonic()))
                                 del self._sent_packets[h3_event.stream_id]
                         except struct.error:
                             pass
@@ -55,11 +54,11 @@ class H3ClientProtocol(QuicConnectionProtocol):
 async def client_sender(protocol: H3ClientProtocol, host: str, size: int, rate: int, duration: int, warmup: int):
     http = protocol._http
     period = 1.0 / rate
-    start_time = time.monotonic()
+    protocol._start_time = time.monotonic()
     seq = 0
     payload_data = random.randbytes(size - BENCH_HDR_SIZE)
 
-    while time.monotonic() - start_time < duration:
+    while (elapsed := time.monotonic() - protocol._start_time) < duration:
         stream_id = protocol._quic.get_next_available_stream_id()
         t_send_ns = time.monotonic_ns()
         header = struct.pack(BENCH_HDR_FORMAT, BENCH_HDR_MAGIC, BENCH_HDR_VERSION, seq, t_send_ns, len(payload_data))
@@ -72,7 +71,7 @@ async def client_sender(protocol: H3ClientProtocol, host: str, size: int, rate: 
         ])
         http.send_data(stream_id=stream_id, data=packet, end_stream=True)
         
-        if time.monotonic() - start_time > warmup:
+        if elapsed > warmup:
             protocol.record_sent_packet(stream_id, t_send_ns)
 
         protocol.transmit()
@@ -102,7 +101,7 @@ class HTTP3Adapter(ProtocolAdapter):
     def run_load(self, host, port, cipher, size, rate, duration, warmup, ca=None, **kwargs):
         results_list = []
         def thread_target():
-            rtt_results = asyncio.run(self._run_async(host, port, cipher, size, rate, duration, warmup, ca))
+            rtt_results = asyncio.run(self._run_async(host, port, cipher, FIXED_PACKET_SIZE, rate, duration, warmup, ca))
             results_list.extend(rtt_results)
 
         thread = threading.Thread(target=thread_target, daemon=True)
