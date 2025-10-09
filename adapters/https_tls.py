@@ -24,8 +24,8 @@ TLS13_CIPHERS = {
     "aesccm8": "TLS_AES_128_CCM_8_SHA256",
 }
 
-async def client_sender(client: httpx.AsyncClient, url: str, size: int, rate: int, duration: int, warmup: int) -> List[float]:
-    rtt_results: List[float] = []
+async def client_sender(client: httpx.AsyncClient, url: str, size: int, rate: int, duration: int, warmup: int) -> List[tuple]:
+    rtt_results: List[tuple] = []
     period = 1.0 / rate
     start_time = time.monotonic()
     seq = 0
@@ -44,8 +44,8 @@ async def client_sender(client: httpx.AsyncClient, url: str, size: int, rate: in
                 if len(resp_payload) >= BENCH_HDR_SIZE:
                     resp_magic, _, resp_seq, resp_t_send_ns, _ = struct.unpack(BENCH_HDR_FORMAT, resp_payload[:BENCH_HDR_SIZE])
                     if resp_magic == BENCH_HDR_MAGIC and resp_seq == seq:
-                        rtt_ns = time.monotonic_ns() - resp_t_send_ns
-                        rtt_results.append(rtt_ns / 1e9)
+                        rtt_ns = time.monotonic_ns() - t_send_ns
+                        rtt_results.append((rtt_ns / 1e9, time.monotonic()))
         except httpx.RequestError as e:
             print(f"HTTPS request failed: {e}")
         
