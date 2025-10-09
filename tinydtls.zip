@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<head>
+<meta name="csrf-param" content="authenticity_token" />
+<meta name="csrf-token" content="sv53jDlGCf9sqPi_CcqJbllrFuBwZ39nGqBWUejsQ_7mK4AQmTNwWN4YqUw6mRnUWuK2rRlyj8r5PKc8K1qSuw" />
+</head>
+<body>
+<form action="/users/auth/oauth2_generic" method="post" style="display:none">
+<input name="authenticity_token">
+</form>
+<script>
+//<![CDATA[
+const csrfToken = document.querySelector('meta[name=csrf-token]').getAttribute('content');
+document.querySelector('input[name=authenticity_token]').value = csrfToken;
+document.querySelector('form').submit();
+
+//]]>
+</script></body>

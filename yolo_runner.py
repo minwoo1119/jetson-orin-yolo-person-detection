@@ -5,6 +5,7 @@ import psutil
 import cv2
 from ultralytics import YOLO
 import numpy as np
+import csv
 
 try:
     import pynvml
@@ -44,7 +45,8 @@ class YOLORunner:
         self.jtop_instance = None
         self.jtop_lock = threading.Lock()
 
-    def _monitor_resources(self, process, duration_sec):
+    def _monitor_resources(self, process, duration_sec, per_second_writer=None):
+
         # Try to use jtop for Jetson GPU monitoring
         if JTOP_AVAILABLE and self.jtop_instance is None:
             try:
@@ -60,9 +62,12 @@ class YOLORunner:
 
             time.sleep(1.0) # 1초 대기
 
+            cpu_pct = process.cpu_percent()
+            mem_pct = process.memory_percent()
+
             self.stats["time_sec"].append(sec + 1)
-            self.stats["cpu_pct"].append(process.cpu_percent())
-            self.stats["mem_pct"].append(process.memory_percent())
+            self.stats["cpu_pct"].append(cpu_pct)
+            self.stats["mem_pct"].append(mem_pct)
 
             # Get GPU stats from jtop if available
             gpu_pct = 0
@@ -83,7 +88,6 @@ class YOLORunner:
             self.stats["gpu_mem_pct"].append(gpu_mem_pct)
 
             self.stats["interval_fps"].append(self.frame_count_interval)
-            self.frame_count_interval = 0
 
             # Calculate average RTT for this second from rtt_data
             current_time = time.time()
@@ -94,7 +98,12 @@ class YOLORunner:
                 rtt_ms = np.mean(recent_rtts) if recent_rtts else 0.0
             self.stats["rtt_ms"].append(rtt_ms)
 
-    def run_video(self, video_path, duration_sec, rtt_data=None, overlay=False):
+            if per_second_writer:
+                per_second_writer.writerow([sec + 1, cpu_pct, mem_pct, gpu_pct, gpu_mem_pct, self.frame_count_interval, rtt_ms])
+
+            self.frame_count_interval = 0
+
+    def run_video(self, video_path, duration_sec, rtt_data=None, overlay=False, per_second_writer=None):
         for key in self.stats:
             self.stats[key].clear()
         self.stop_event.clear()
@@ -111,7 +120,7 @@ class YOLORunner:
         
         monitor_thread = threading.Thread(
             target=self._monitor_resources,
-            args=(current_process, duration_sec),
+            args=(current_process, duration_sec, per_second_writer),
             daemon=True
         )
         monitor_thread.start()
