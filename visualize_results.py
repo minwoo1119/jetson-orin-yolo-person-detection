@@ -35,7 +35,7 @@ def plot_summary_comparisons(df, output_dir):
 
 def plot_timeseries(log_dir, output_dir):
     """상세 로그들을 기반으로 시계열 꺾은선 그래프를 생성합니다."""
-    log_files = glob.glob(os.path.join(log_dir, "*_timeseries.csv"))
+    log_files = glob.glob(os.path.join(log_dir, "*.csv"))
     if not log_files:
         print(f"No time-series logs found in {log_dir}. Skipping time-series plots.")
         return
@@ -43,7 +43,7 @@ def plot_timeseries(log_dir, output_dir):
     all_data = []
     for f in log_files:
         df = pd.read_csv(f)
-        run_name = os.path.basename(f).replace("_timeseries.csv", "")
+        run_name = os.path.basename(f).replace(".csv", "")
         df['run'] = run_name
         all_data.append(df)
     
