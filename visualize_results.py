@@ -24,9 +24,9 @@ def plot_summary_comparisons(df, output_dir):
     plt.close()
 
     plt.figure(figsize=(15, 8))
-    sns.barplot(x='proto', y='rtt_avg_ms', hue='cipher', data=df, palette='plasma')
-    plt.title('Average RTT (ms) Comparison', fontsize=16)
-    plt.ylabel('Average RTT (ms)')
+    sns.barplot(x='proto', y='rtt_p50_ms', hue='cipher', data=df, palette='plasma')
+    plt.title('Median RTT (p50, ms) Comparison', fontsize=16)
+    plt.ylabel('Median RTT (p50, ms)')
     plt.xlabel('Protocol')
     plt.tight_layout()
     plt.savefig(os.path.join(output_dir, "summary_rtt_comparison.png"))

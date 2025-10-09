@@ -48,6 +48,10 @@ def main():
 
     yolo = YOLORunner(model_path)
 
+    # Create directories if they don't exist
+    os.makedirs("timeseries_logs", exist_ok=True)
+    os.makedirs("plots", exist_ok=True)
+
     with open(args.out, "w", newline="", encoding="utf-8") as out:
         w = csv.writer(out)
         w.writerow(["board","video","proto","cipher",
@@ -65,39 +69,45 @@ def main():
                     print(f"\n=== RUN {board} | {video_name} | {proto} | {cipher} ===")
                     adapter = None
                     handle, lines = None, []
+
+                    log_filename = f"timeseries_logs/{video_name}_{proto}_{cipher}.csv"
                     try:
-                        adapter = load_adapter(proto)
-                        handle, lines = adapter.run_load(
-                            host=host, port=port, cipher=cipher,
-                            size=size, rate=rate, duration=duration, warmup=warmup,
-                            ca=ca, cert=cert, key=key, oscore_context=oscore_context
-                        )
+                        with open(log_filename, "w", newline="", encoding="utf-8") as per_second_out_file:
+                            per_second_writer = csv.writer(per_second_out_file)
+                            per_second_writer.writerow(["time_sec","cpu_pct","mem_pct","gpu_pct","gpu_mem_pct","interval_fps","rtt_ms"])
 
-                        yres = yolo.run_video(video_path, duration_sec=duration, overlay=False)
+                            adapter = load_adapter(proto)
+                            handle, lines = adapter.run_load(
+                                host=host, port=port, cipher=cipher,
+                                size=size, rate=rate, duration=duration, warmup=warmup,
+                                ca=ca, cert=cert, key=key, oscore_context=oscore_context
+                            )
 
-                        if isinstance(handle, threading.Thread):
-                            handle.join(timeout=10)
+                            yres = yolo.run_video(video_path, duration_sec=duration, overlay=False, per_second_writer=per_second_writer)
 
-                        if hasattr(adapter, 'stop_load'):
-                            adapter.stop_load()
+                            if isinstance(handle, threading.Thread):
+                                handle.join(timeout=10)
 
-                        rtt_p50, rtt_p95, rtt_p99 = 0, 0, 0
-                        note = ""
-                        if lines and isinstance(lines, list) and len(lines) > 0:
-                            rtt_ms = [r * 1000 for r in lines]
-                            rtt_p50 = np.percentile(rtt_ms, 50)
-                            rtt_p95 = np.percentile(rtt_ms, 95)
-                            rtt_p99 = np.percentile(rtt_ms, 99)
-                        else:
-                            note = "no rtt results"
+                            if hasattr(adapter, 'stop_load'):
+                                adapter.stop_load()
 
-                        w.writerow([board, video_name, proto, cipher,
-                                    f"{yres['avg_fps']:.3f}", f"{yres['cpu_pct']:.2f}",
-                                    f"{yres['gpu_pct']:.2f}", f"{yres['mem_pct']:.2f}",
-                                    f"{yres['gpu_mem_pct']:.2f}", f"{rtt_p50:.3f}",
-                                    f"{rtt_p95:.3f}", f"{rtt_p99:.3f}", note])
-                        out.flush()
-                        print(f"=== DONE | FPS {yres['avg_fps']:.2f} | RTT p50 {rtt_p50:.2f}ms ===")
+                            rtt_p50, rtt_p95, rtt_p99 = 0, 0, 0
+                            note = ""
+                            if lines and isinstance(lines, list) and len(lines) > 0:
+                                rtt_ms = [r * 1000 for r in lines]
+                                rtt_p50 = np.percentile(rtt_ms, 50)
+                                rtt_p95 = np.percentile(rtt_ms, 95)
+                                rtt_p99 = np.percentile(rtt_ms, 99)
+                            else:
+                                note = "no rtt results"
+
+                            w.writerow([board, video_name, proto, cipher,
+                                        f"{yres['avg_fps']:.3f}", f"{yres['cpu_pct']:.2f}",
+                                        f"{yres['gpu_pct']:.2f}", f"{yres['mem_pct']:.2f}",
+                                        f"{yres['gpu_mem_pct']:.2f}", f"{rtt_p50:.3f}",
+                                        f"{rtt_p95:.3f}", f"{rtt_p99:.3f}", note])
+                            out.flush()
+                            print(f"=== DONE | FPS {yres['avg_fps']:.2f} | RTT p50 {rtt_p50:.2f}ms ===")
 
                     except Exception as e:
                         note = f"run failed: {e}"
