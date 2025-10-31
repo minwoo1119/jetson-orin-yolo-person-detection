@@ -94,7 +94,9 @@ def main():
                             rtt_p50, rtt_p95, rtt_p99 = 0, 0, 0
                             note = ""
                             if lines and isinstance(lines, list) and len(lines) > 0:
-                                rtt_ms = [r * 1000 for r in lines]
+                                # lines는 [(rtt_seconds, timestamp), ...] 형식
+                                # 첫 번째 요소(rtt_seconds)만 추출하여 ms로 변환
+                                rtt_ms = [r[0] * 1000 if isinstance(r, tuple) else r * 1000 for r in lines]
                                 rtt_p50 = np.percentile(rtt_ms, 50)
                                 rtt_p95 = np.percentile(rtt_ms, 95)
                                 rtt_p99 = np.percentile(rtt_ms, 99)

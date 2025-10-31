@@ -92,11 +92,26 @@ class HTTP3Adapter(ProtocolAdapter):
         config = QuicConfiguration(is_client=True, alpn_protocols=H3_ALPN)
         if ca and os.path.exists(ca):
             config.load_verify_locations(cafile=ca)
-        
-        async with connect(host, port, configuration=config, create_protocol=H3ClientProtocol) as protocol:
-            protocol = cast(H3ClientProtocol, protocol)
-            await client_sender(protocol, host, size, rate, duration, warmup)
-            return list(protocol.rtt_results)
+
+        print(f"[DEBUG] HTTP3/QUIC attempting connection to {host}:{port}")
+        try:
+            async with connect(host, port, configuration=config, create_protocol=H3ClientProtocol) as protocol:
+                protocol = cast(H3ClientProtocol, protocol)
+                print(f"[SUCCESS] HTTP3/QUIC connected to {host}:{port}")
+                await client_sender(protocol, host, size, rate, duration, warmup)
+                return list(protocol.rtt_results)
+        except ConnectionError as e:
+            print(f"[ERROR] HTTP3/QUIC ConnectionError: {e}")
+            return []
+        except TimeoutError as e:
+            print(f"[ERROR] HTTP3/QUIC timeout: {e}")
+            return []
+        except OSError as e:
+            print(f"[ERROR] HTTP3/QUIC network error: {e}")
+            return []
+        except Exception as e:
+            print(f"[ERROR] HTTP3/QUIC failed with {type(e).__name__}: {e}")
+            return []
 
     def run_load(self, host, port, cipher, size, rate, duration, warmup, ca=None, **kwargs):
         results_list = []

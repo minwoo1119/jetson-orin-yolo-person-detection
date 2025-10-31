@@ -216,25 +216,46 @@ class DTLSAdapter(ProtocolAdapter):
         try:
             # 핸드셰이크 (논블로킹 retry)
             import select
-            print(f"Starting DTLS handshake...")
+            print(f"[DEBUG] Starting DTLS handshake...")
             handshake_start = time.monotonic()
             sock.setblocking(False)  # 논블로킹 모드로 변경
 
+            handshake_attempts = 0
+            want_read_count = 0
+            want_write_count = 0
+
             while time.monotonic() - handshake_start < 10:
                 try:
+                    handshake_attempts += 1
                     conn.do_handshake()
                     actual_cipher = conn.get_cipher_name()
-                    print(f"DTLS handshake OK with cipher: {actual_cipher}")
+                    print(f"[SUCCESS] DTLS handshake OK with cipher: {actual_cipher}")
+                    print(f"[DEBUG] Handshake stats: attempts={handshake_attempts}, want_read={want_read_count}, want_write={want_write_count}")
                     break
                 except SSL.WantReadError:
+                    want_read_count += 1
                     readable, _, _ = select.select([sock], [], [], 0.5)
                     if not readable:
+                        if handshake_attempts <= 5:
+                            print(f"[DEBUG] WantReadError: no data available (attempt {handshake_attempts})")
                         await asyncio.sleep(0.01)
                 except SSL.WantWriteError:
+                    want_write_count += 1
                     _, writable, _ = select.select([], [sock], [], 0.5)
                     if not writable:
+                        if handshake_attempts <= 5:
+                            print(f"[DEBUG] WantWriteError: socket not writable (attempt {handshake_attempts})")
                         await asyncio.sleep(0.01)
+                except SSL.Error as e:
+                    print(f"[ERROR] SSL Error during handshake: {e}")
+                    raise
+                except Exception as e:
+                    print(f"[ERROR] Unexpected error during handshake: {type(e).__name__}: {e}")
+                    raise
             else:
+                elapsed = time.monotonic() - handshake_start
+                print(f"[FAIL] DTLS handshake timeout after {elapsed:.2f}s")
+                print(f"[DEBUG] Final stats: attempts={handshake_attempts}, want_read={want_read_count}, want_write={want_write_count}")
                 raise TimeoutError("DTLS handshake timeout")
 
             # 이제 CoAP+DTLS로 통신
