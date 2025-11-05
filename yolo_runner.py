@@ -62,8 +62,13 @@ class YOLORunner:
 
             time.sleep(1.0) # 1초 대기
 
-            cpu_pct = process.cpu_percent()
-            mem_pct = process.memory_percent()
+            # 기존: 현재 프로세스만 측정 (stress-ng 부하 반영 안 됨)
+            # cpu_pct = process.cpu_percent()
+            # mem_pct = process.memory_percent()
+
+            # 새로운: 시스템 전체 CPU/메모리 사용률 측정 (stress-ng 부하 포함)
+            cpu_pct = psutil.cpu_percent(interval=0.1)
+            mem_pct = psutil.virtual_memory().percent
 
             self.stats["time_sec"].append(sec + 1)
             self.stats["cpu_pct"].append(cpu_pct)
@@ -103,7 +108,60 @@ class YOLORunner:
 
             self.frame_count_interval = 0
 
+    # 11/01 권오빈 추가
+    def run_monitoring_only(self, duration_sec, rtt_data=None, per_second_writer=None):
+        """비디오 처리 없이 리소스 모니터링만 수행"""
+        for key in self.stats:
+            self.stats[key].clear()
+        self.stop_event.clear()
+        self.frame_count_interval = 0
+        self.rtt_data = rtt_data
+
+        current_process = psutil.Process()
+        # Call cpu_percent() once before the loop to initialize it
+        current_process.cpu_percent()
+
+        monitor_thread = threading.Thread(
+            target=self._monitor_resources,
+            args=(current_process, duration_sec, per_second_writer),
+            daemon=True
+        )
+        monitor_thread.start()
+
+        start_time = time.time()
+        # 비디오 처리 대신 단순히 duration만큼 대기
+        time.sleep(duration_sec)
+
+        self.stop_event.set()
+        monitor_thread.join()
+
+        # Close jtop instance
+        if self.jtop_instance:
+            try:
+                self.jtop_instance.close()
+                self.jtop_instance = None
+            except Exception:
+                pass
+
+        actual_duration = time.time() - start_time
+
+        summary = {
+            "start_time": start_time,
+            "avg_fps": 0,  # 비디오 없으므로 FPS는 0
+            "cpu_pct": np.mean(self.stats["cpu_pct"]) if self.stats["cpu_pct"] else 0,
+            "gpu_pct": np.mean(self.stats["gpu_pct"]) if self.stats["gpu_pct"] else 0,
+            "mem_pct": np.mean(self.stats["mem_pct"]) if self.stats["mem_pct"] else 0,
+            "gpu_mem_pct": np.mean(self.stats["gpu_mem_pct"]) if self.stats["gpu_mem_pct"] else 0,
+        }
+
+        return summary
+
     def run_video(self, video_path, duration_sec, rtt_data=None, overlay=False, per_second_writer=None):
+        # video_path가 None이면 비디오 처리 생략하고 모니터링만 수행, 11/01 권오빈 추가
+        if video_path is None:
+            print("No video specified - running monitoring only")
+            return self.run_monitoring_only(duration_sec, rtt_data, per_second_writer)
+
         for key in self.stats:
             self.stats[key].clear()
         self.stop_event.clear()

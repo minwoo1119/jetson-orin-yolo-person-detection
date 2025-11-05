@@ -71,6 +71,121 @@ def plot_timeseries(log_dir, output_dir):
         plt.close()
         print(f"Saved time-series plot for {metric} to {save_path}")
 
+# 11/02 권오빈 추가
+def plot_protocol_comparisons(df, output_dir):
+    """프로토콜별 RTT, CPU, 메모리 사용량을 비교하는 3개의 그래프 생성"""
+    if df.empty:
+        print("Data is empty, skipping protocol comparison plots.")
+        return
+
+    # 프로토콜별로 평균값 계산 (같은 프로토콜의 여러 cipher는 평균)
+    protocol_avg = df.groupby('proto').agg({
+        'rtt_p50_ms': 'mean',
+        'rtt_p95_ms': 'mean',
+        'rtt_p99_ms': 'mean',
+        'cpu_pct': 'mean',
+        'mem_pct': 'mean'
+    }).reset_index()
+
+    # 프로토콜 순서 정의 (일관성을 위해)
+    protocol_order = ['https', 'http3', 'mqtt', 'dtls', 'coap']
+    protocol_avg['proto'] = pd.Categorical(protocol_avg['proto'],
+                                           categories=protocol_order,
+                                           ordered=True)
+    protocol_avg = protocol_avg.sort_values('proto')
+
+    # 프로토콜 이름 대문자로 변환
+    protocol_labels = {
+        'https': 'HTTPS',
+        'http3': 'HTTP/3',
+        'mqtt': 'MQTT',
+        'dtls': 'DTLS',
+        'coap': 'CoAP'
+    }
+    protocol_avg['proto_label'] = protocol_avg['proto'].map(protocol_labels)
+
+    # 색상 팔레트
+    colors = ['#3498db', '#e74c3c', '#2ecc71', '#f39c12', '#9b59b6']
+
+    # 1. RTT 비교 그래프 (p50, p95, p99를 하나의 그래프에)
+    fig, ax = plt.subplots(figsize=(12, 6))
+
+    x = range(len(protocol_avg))
+    width = 0.25
+
+    # 세 개의 바 그룹 생성
+    bars1 = ax.bar([i - width for i in x], protocol_avg['rtt_p50_ms'],
+                   width, label='p50', alpha=0.8, edgecolor='black', linewidth=1.2)
+    bars2 = ax.bar([i for i in x], protocol_avg['rtt_p95_ms'],
+                   width, label='p95', alpha=0.8, edgecolor='black', linewidth=1.2)
+    bars3 = ax.bar([i + width for i in x], protocol_avg['rtt_p99_ms'],
+                   width, label='p99', alpha=0.8, edgecolor='black', linewidth=1.2)
+
+    # 값 표시
+    for bars in [bars1, bars2, bars3]:
+        for bar in bars:
+            height = bar.get_height()
+            ax.text(bar.get_x() + bar.get_width()/2., height,
+                    f'{height:.1f}',
+                    ha='center', va='bottom', fontsize=9, fontweight='bold')
+
+    ax.set_ylabel('RTT (ms)', fontsize=14, fontweight='bold')
+    ax.set_xlabel('Protocol', fontsize=14, fontweight='bold')
+    ax.set_title('Protocol RTT Comparison', fontsize=16, fontweight='bold', pad=20)
+    ax.set_xticks(x)
+    ax.set_xticklabels(protocol_avg['proto_label'])
+    ax.legend(fontsize=12)
+    ax.grid(axis='y', alpha=0.3, linestyle='--')
+    ax.set_axisbelow(True)
+    plt.tight_layout()
+    plt.savefig(os.path.join(output_dir, "protocol_rtt_comparison.png"), dpi=300)
+    plt.close()
+    print(f"Saved RTT comparison plot")
+
+    # 2. CPU 사용량 비교 그래프
+    fig, ax = plt.subplots(figsize=(10, 6))
+    bars = ax.bar(protocol_avg['proto_label'], protocol_avg['cpu_pct'],
+                  color=colors[:len(protocol_avg)], alpha=0.8, edgecolor='black', linewidth=1.2)
+
+    # 값 표시
+    for bar in bars:
+        height = bar.get_height()
+        ax.text(bar.get_x() + bar.get_width()/2., height,
+                f'{height:.2f}%',
+                ha='center', va='bottom', fontsize=11, fontweight='bold')
+
+    ax.set_ylabel('CPU Usage (%)', fontsize=14, fontweight='bold')
+    ax.set_xlabel('Protocol', fontsize=14, fontweight='bold')
+    ax.set_title('Protocol CPU Usage Comparison', fontsize=16, fontweight='bold', pad=20)
+    ax.grid(axis='y', alpha=0.3, linestyle='--')
+    ax.set_axisbelow(True)
+    plt.tight_layout()
+    plt.savefig(os.path.join(output_dir, "protocol_cpu_comparison.png"), dpi=300)
+    plt.close()
+    print(f"Saved CPU comparison plot")
+
+    # 3. 메모리 사용량 비교 그래프
+    fig, ax = plt.subplots(figsize=(10, 6))
+    bars = ax.bar(protocol_avg['proto_label'], protocol_avg['mem_pct'],
+                  color=colors[:len(protocol_avg)], alpha=0.8, edgecolor='black', linewidth=1.2)
+
+    # 값 표시
+    for bar in bars:
+        height = bar.get_height()
+        ax.text(bar.get_x() + bar.get_width()/2., height,
+                f'{height:.2f}%',
+                ha='center', va='bottom', fontsize=11, fontweight='bold')
+
+    ax.set_ylabel('Memory Usage (%)', fontsize=14, fontweight='bold')
+    ax.set_xlabel('Protocol', fontsize=14, fontweight='bold')
+    ax.set_title('Protocol Memory Usage Comparison', fontsize=16, fontweight='bold', pad=20)
+    ax.grid(axis='y', alpha=0.3, linestyle='--')
+    ax.set_axisbelow(True)
+    plt.tight_layout()
+    plt.savefig(os.path.join(output_dir, "protocol_memory_comparison.png"), dpi=300)
+    plt.close()
+    print(f"Saved Memory comparison plot")
+
 def plot_percentile_comparisons(df, output_dir):
     """Percentile CSV를 기반으로 p50, p95, p99 비교 그래프를 생성합니다."""
     if df.empty:
@@ -131,6 +246,8 @@ def main():
     if os.path.exists(args.summary_csv_file):
         summary_df = pd.read_csv(args.summary_csv_file)
         plot_summary_comparisons(summary_df, args.out_dir)
+        # 프로토콜 비교 그래프 생성 (RTT, CPU, Memory), 11/02 권오빈 추가
+        plot_protocol_comparisons(summary_df, args.out_dir)
     else:
         print(f"Summary file not found: {args.summary_csv_file}")
 

@@ -84,7 +84,7 @@ class CoAPAdapter(ProtocolAdapter):
     def run_load(self, host, port, cipher, size, rate, duration, warmup, oscore_context=None, **kwargs):
         results_list = []
         def thread_target():
-            rtt_results = asyncio.run(self._run_async(host, port, cipher, FIXED_PACKET_SIZE, rate, duration, warmup, oscore_context))
+            rtt_results = asyncio.run(self._run_async(host, port, cipher, size, rate, duration, warmup, oscore_context))
             results_list.extend(rtt_results)
 
         thread = threading.Thread(target=thread_target, daemon=True)

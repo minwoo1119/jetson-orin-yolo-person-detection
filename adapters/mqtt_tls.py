@@ -32,31 +32,21 @@ class MQTTAdapter(ProtocolAdapter):
             import paho.mqtt.client as mqtt
         except ImportError:
             raise RuntimeError("paho-mqtt is not installed. Run 'pip install paho-mqtt'")
-        self.rtt_results: List[float] = []
+        self.rtt_results: List[tuple] = []
         self.sent_packets: Dict[int, int] = {}
         self.client = None
         self.stop_event = threading.Event()
 
     def on_message(self, client, userdata, msg):
-        # --- DEBUG: Message received ---
-        # print(f"MQTT message received on topic {msg.topic}")
         payload = msg.payload
         if len(payload) >= BENCH_HDR_SIZE:
             try:
                 magic, _, seq, resp_t_send_ns, _ = struct.unpack(BENCH_HDR_FORMAT, payload[:BENCH_HDR_SIZE])
-                # --- DEBUG: Unpacked data ---
-                # print(f"  -> Unpacked: magic={hex(magic)}, seq={seq}")
                 if magic == BENCH_HDR_MAGIC and seq in self.sent_packets:
-                    # --- DEBUG: Packet match found ---
-                    # print(f"  -> Match found for seq={seq}!")
                     t_send_ns = self.sent_packets.pop(seq)
                     rtt_ns = time.monotonic_ns() - t_send_ns
-                    self.rtt_results.append(rtt_ns / 1e9)
-                # else:
-                    # --- DEBUG: Packet mismatch ---
-                    # print(f"  -> No match for seq={seq}. Sent keys: {list(self.sent_packets.keys())[:5]}...")
+                    self.rtt_results.append((rtt_ns / 1e9, time.monotonic()))
             except (struct.error, KeyError):
-                # print("  -> Error unpacking or processing packet.")
                 pass
 
     def _publisher_thread(self, size: int, rate: int, duration: int, warmup: int):
@@ -73,7 +63,7 @@ class MQTTAdapter(ProtocolAdapter):
             if time.monotonic() - start_time > warmup:
                 self.sent_packets[seq] = t_send_ns
 
-            self.client.publish("bench/echo", packet, qos=0)
+            self.client.publish("lab/echo", packet, qos=0)
             seq += 1
             time.sleep(max(0, period - ((time.monotonic_ns() - t_send_ns) / 1e9)))
 
@@ -88,7 +78,10 @@ class MQTTAdapter(ProtocolAdapter):
         context = ssl.create_default_context(ssl.Purpose.SERVER_AUTH)
         if ca and os.path.exists(ca):
             context.load_verify_locations(cafile=ca)
-        
+        else:
+            # Use system CA certificates (like --capath /etc/ssl/certs). 11/01 권오빈 추가
+            context.load_verify_locations(capath="/etc/ssl/certs")
+
         cipher_str = TLS13_CIPHERS.get(cipher)
         if cipher_str and hasattr(context, "set_ciphersuites"):
             try: context.set_ciphersuites(cipher_str)
@@ -97,12 +90,16 @@ class MQTTAdapter(ProtocolAdapter):
         if cert and key: context.load_cert_chain(certfile=cert, keyfile=key)
         self.client.tls_set_context(context)
 
+        # Add username/password authentication (demo user). 11/01 권오빈 추가
+        self.client.username_pw_set("demo", "D138138*")
+
         try:
             self.client.connect(host, port, 60)
         except Exception as e:
             raise RuntimeError(f"MQTT connection failed: {e}")
 
-        self.client.subscribe("bench/echo/response", qos=0)
+        # Subscribe to response topic (requires echo server)
+        self.client.subscribe("lab/echo/response", qos=0)
         self.client.loop_start()
 
         pub_thread = threading.Thread(target=self._publisher_thread, args=(size, rate, duration, warmup), daemon=True)

@@ -112,7 +112,6 @@ class DTLSAdapter(ProtocolAdapter):
         # coaps:// URI 생성
         uri = f"coaps://{host}:{port}/echo"
 
-        print(f"CoAP+DTLS connecting to {uri} with cipher preference: {cipher}")
 
         try:
             while (elapsed := time.monotonic() - start_time) < duration:
@@ -177,7 +176,6 @@ class DTLSAdapter(ProtocolAdapter):
         # 호스트 해석
         try:
             resolved_host = sock_module.gethostbyname(host)
-            print(f"DTLS connecting to {resolved_host}:{port} (cipher: {cipher})")
         except Exception as e:
             print(f"Failed to resolve {host}: {e}")
             return []
@@ -216,7 +214,6 @@ class DTLSAdapter(ProtocolAdapter):
         try:
             # 핸드셰이크 (논블로킹 retry)
             import select
-            print(f"Starting DTLS handshake...")
             handshake_start = time.monotonic()
             sock.setblocking(False)  # 논블로킹 모드로 변경
 
@@ -224,7 +221,6 @@ class DTLSAdapter(ProtocolAdapter):
                 try:
                     conn.do_handshake()
                     actual_cipher = conn.get_cipher_name()
-                    print(f"DTLS handshake OK with cipher: {actual_cipher}")
                     break
                 except SSL.WantReadError:
                     readable, _, _ = select.select([sock], [], [], 0.5)
@@ -283,8 +279,6 @@ class DTLSAdapter(ProtocolAdapter):
                                     if resp_magic == BENCH_HDR_MAGIC and resp_seq == seq:
                                         rtt_ns = time.monotonic_ns() - t_send_ns
                                         rtt_results.append((rtt_ns / 1e9, time.monotonic()))
-                                        if len(rtt_results) <= 3:
-                                            print(f"Got valid response {len(rtt_results)}, RTT: {rtt_ns/1e6:.2f}ms")
                                 except struct.error:
                                     pass
                 except Exception as e:
@@ -311,121 +305,6 @@ class DTLSAdapter(ProtocolAdapter):
             except:
                 pass
             sock.close()
-
-        # 아래 코드는 사용하지 않음 (삭제 예정)
-        ssl_context = SSL.Context(SSL.DTLS_METHOD)
-
-        # DTLS 1.2 호환 cipher suites
-        # 서버의 Californium 설정에 맞춰 cipher 선택
-        # 서버는 ECDHE 기반 cipher suite를 주로 지원
-        if cipher == "aesgcm":
-            # AES128-GCM 우선
-            cipher_str = "ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:AES128-GCM-SHA256"
-        elif cipher == "aes256gcm":
-            # AES256-GCM 우선
-            cipher_str = "ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:AES256-GCM-SHA384"
-        elif cipher == "chacha20":
-            # ChaCha20-Poly1305 우선
-            cipher_str = "ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305"
-        else:
-            # 기본값: 모든 안전한 cipher 허용
-            cipher_str = "ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384"
-
-        # Fallback cipher 추가 (호환성 향상)
-        cipher_str += ":HIGH:!aNULL:!eNULL:!EXPORT:!DES:!MD5:!PSK:!RC4"
-
-        try:
-            ssl_context.set_cipher_list(cipher_str.encode())
-        except SSL.Error as e:
-            print(f"Warning: Failed to set cipher {cipher_str}: {e}")
-            # 최종 Fallback
-            try:
-                ssl_context.set_cipher_list(b"ALL:!aNULL:!eNULL")
-            except SSL.Error as e2:
-                print(f"Error: Cannot set any ciphers: {e2}")
-
-        if ca and os.path.exists(ca):
-            ssl_context.load_verify_locations(cafile=ca)
-            ssl_context.set_verify(SSL.VERIFY_PEER, lambda conn, cert, errno, depth, ok: ok)
-        else:
-            ssl_context.set_verify(SSL.VERIFY_NONE, lambda conn, cert, errno, depth, ok: True)
-
-        # Jetson에서는 DtlsClientTransport를 사용하지만 라즈베리파이에는 없음
-        # 대신 직접 UDP + DTLS 구현
-        if AIOCOAP_DTLS_AVAILABLE:
-            # Jetson 원본 방식
-            transport, session = None, None
-            try:
-                transport = await DtlsClientTransport.create_client_transport_endpoint(ssl_context=ssl_context)
-                session = await transport.get_message_interface((host, port))
-                return await client_sender(session, size, rate, duration, warmup)
-            finally:
-                if session: session.shutdown()
-                if transport: await transport.shutdown()
-        else:
-            # 라즈베리파이 대체 구현: 동기 방식으로 실행
-            from socket import socket, AF_INET, SOCK_DGRAM
-            import socket as sock_module
-            import select
-
-            # 호스트 해석
-            try:
-                resolved_host = sock_module.gethostbyname(host)
-            except Exception as e:
-                print(f"Failed to resolve host {host}: {e}")
-                resolved_host = host
-
-            # UDP 소켓
-            sock = socket(AF_INET, SOCK_DGRAM)
-            sock.setblocking(False)  # 논블로킹 모드로 설정
-            sock.connect((resolved_host, port))
-
-            # DTLS 연결
-            conn = SSL.Connection(ssl_context, sock)
-            conn.set_connect_state()
-
-            try:
-                # 핸드셰이크 (타임아웃 15초)
-                handshake_start = time.monotonic()
-                handshake_done = False
-
-                while not handshake_done and (time.monotonic() - handshake_start < 15):
-                    try:
-                        conn.do_handshake()
-                        # 성공한 cipher 확인
-                        actual_cipher = conn.get_cipher_name()
-                        print(f"DTLS handshake successful with {resolved_host}:{port} using cipher: {actual_cipher}")
-                        handshake_done = True
-                    except SSL.WantReadError:
-                        # select로 읽기 가능할 때까지 대기
-                        readable, _, _ = select.select([sock], [], [], 0.5)
-                        if not readable:
-                            await asyncio.sleep(0.01)
-                    except SSL.WantWriteError:
-                        # select로 쓰기 가능할 때까지 대기
-                        _, writable, _ = select.select([], [sock], [], 0.5)
-                        if not writable:
-                            await asyncio.sleep(0.01)
-                    except (SSL.Error, SSL.SysCallError) as e:
-                        error_msg = str(e)
-                        print(f"DTLS handshake failed with cipher config '{cipher}': {error_msg}")
-                        raise
-
-                if not handshake_done:
-                    raise TimeoutError(f"DTLS handshake timeout after 15 seconds")
-
-                # 동기 client_sender를 비동기로 래핑
-                return await self._client_sender_sync_wrapper(conn, size, rate, duration, warmup)
-            finally:
-                try:
-                    conn.shutdown()
-                except:
-                    pass
-                try:
-                    conn.close()
-                except:
-                    pass
-                sock.close()
 
     async def _client_sender_sync_wrapper(self, conn, size, rate, duration, warmup):
         """동기 DTLS 연결을 비동기로 래핑"""
@@ -504,7 +383,7 @@ class DTLSAdapter(ProtocolAdapter):
         """Jetson 원본과 완전히 동일"""
         results_list = []
         def thread_target():
-            rtt_results = asyncio.run(self._run_async(host, port, cipher, FIXED_PACKET_SIZE, rate, duration, warmup, ca))
+            rtt_results = asyncio.run(self._run_async(host, port, cipher, size, rate, duration, warmup, ca))
             results_list.extend(rtt_results)
 
         thread = threading.Thread(target=thread_target, daemon=True)

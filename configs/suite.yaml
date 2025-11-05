@@ -4,8 +4,8 @@ board: "jetson_orin_nano"   # "raspberry_pi" | "jetson_orin_nano" | "tda4um"
 # === 러너 공통 파라미터 ===
 duration_sec: 60
 warmup_sec: 5
-payload_size: 2048  
-send_rate: 100
+payload_size: 2048
+send_rate: 200
 
 # bench_client(HTTPS/DTLS용 C++ 바이너리) 경로
 bench_client_path: "/opt/bench/bench_client"
@@ -44,13 +44,20 @@ bench_server:
 # aesccm8:   TLS_AES_128_CCM_8_SHA256
 # coap의 oscore는 oscore_context에 설정된 알고리즘(기본: AES-CCM-16-64-128)을 사용합니다.
 matrix:
-  https: ["aesgcm", "aes256gcm", "chacha20", ]
-  dtls:  ["aesgcm", "aes256gcm", "chacha20", ]
-  mqtt:  ["aesgcm", "aes256gcm", "chacha20", ]
-  http3: ["aesgcm", "aes256gcm", "chacha20"]
+  # https: ["aesgcm", "aes256gcm", "chacha20", "aesccm", "aesccm8"]
+  # dtls:  ["aesgcm", "aes256gcm", "chacha20", ]
+  # mqtt:  ["aesgcm", "aes256gcm", "chacha20", ]
+  # http3: ["aesgcm", "aes256gcm", "chacha20"]
   # coap:  ["plain", "oscore"]
+  
+  # 권오빈 논문용 
+  https: ["aesgcm"]
+  dtls:  ["aesgcm"]
+  mqtt:  ["aesgcm"]
+  http3: ["aesgcm"]
 
 # === YOLO 설정 ===
+# 비디오 없이 프로토콜 테스트만 하려면 아래 전체를 주석 처리하세요
 yolo:
   model_path: "yolo_model/yolo11n.pt"
   videos:

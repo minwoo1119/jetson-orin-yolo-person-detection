@@ -42,9 +42,11 @@ def main():
     model_path = yolo_cfg.get("model_path", "yolo_model/yolov8n.pt")
     videos = yolo_cfg.get("videos", {})
 
+    # 비디오가 없으면 "NoVideo"라는 더미 항목 추가 (video_path는 None), 11/01 권오빈 추가
     if not videos:
-        print("No videos configured under yolo.videos", file=sys.stderr)
-        sys.exit(1)
+        videos = {"NoVideo": None}
+        print("No videos configured - will run monitoring only without video processing")
+        # sys.exit(1)
 
     yolo = YOLORunner(model_path)
 
@@ -83,6 +85,7 @@ def main():
                                 ca=ca, cert=cert, key=key, oscore_context=oscore_context
                             )
 
+                            # video_path가 None이면 자동으로 모니터링만 수행, 11/01 권오빈 추가
                             yres = yolo.run_video(video_path, duration_sec=duration, overlay=False, per_second_writer=per_second_writer)
 
                             if isinstance(handle, threading.Thread):
@@ -94,7 +97,8 @@ def main():
                             rtt_p50, rtt_p95, rtt_p99 = 0, 0, 0
                             note = ""
                             if lines and isinstance(lines, list) and len(lines) > 0:
-                                rtt_ms = [r * 1000 for r in lines]
+                                # Extract RTT in seconds from tuple (rtt_sec, timestamp), convert to ms
+                                rtt_ms = [r[0] * 1000 for r in lines]
                                 rtt_p50 = np.percentile(rtt_ms, 50)
                                 rtt_p95 = np.percentile(rtt_ms, 95)
                                 rtt_p99 = np.percentile(rtt_ms, 99)
@@ -107,7 +111,7 @@ def main():
                                         f"{yres['gpu_mem_pct']:.2f}", f"{rtt_p50:.3f}",
                                         f"{rtt_p95:.3f}", f"{rtt_p99:.3f}", note])
                             out.flush()
-                            print(f"=== DONE | FPS {yres['avg_fps']:.2f} | RTT p50 {rtt_p50:.2f}ms ===")
+                            print(f"=== DONE | FPS {yres['avg_fps']:.2f} | CPU {yres['cpu_pct']:.2f}% | RTT p50 {rtt_p50:.2f}ms ===")
 
                     except Exception as e:
                         note = f"run failed: {e}"

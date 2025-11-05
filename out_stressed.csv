@@ -1,0 +1,4 @@
+board,video,proto,cipher,avg_fps,cpu_pct,gpu_pct,mem_pct,gpu_mem_pct,rtt_p50_ms,rtt_p95_ms,rtt_p99_ms,note
+jetson_orin_nano,Typical,http3,aesgcm,1.138,94.79,0.00,72.63,0.00,481827.168,963660.216,963660.796,
+jetson_orin_nano,Typical,http3,aes256gcm,1.370,86.98,0.00,72.91,0.00,481858.697,963722.784,963723.525,
+jetson_orin_nano,Typical,http3,chacha20,2.773,50.22,0.00,72.56,0.00,481889.604,963784.763,963785.257,

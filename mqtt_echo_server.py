@@ -2,8 +2,8 @@
 import argparse
 import paho.mqtt.client as mqtt
 
-REQUEST_TOPIC = "bench/echo"
-RESPONSE_TOPIC = "bench/echo/response"
+REQUEST_TOPIC = "lab/echo"
+RESPONSE_TOPIC = "lab/echo/response"
 
 def on_connect(client, userdata, flags, rc):
     if rc == 0:
@@ -25,15 +25,30 @@ def main():
     parser.add_argument("--ca", help="Path to CA certificate file for TLS")
     parser.add_argument("--cert", help="Path to client certificate file for TLS")
     parser.add_argument("--key", help="Path to client private key file for TLS")
+    # 11/01 권오빈 추가
+    parser.add_argument("--username", default="demo", help="MQTT username")
+    parser.add_argument("--password", default="D138138*", help="MQTT password")
     args = parser.parse_args()
 
     client = mqtt.Client(client_id="mqtt-echo-server")
     client.on_connect = on_connect
     client.on_message = on_message
 
+    # Add username/password authentication. 11/01 권오빈 추가
+    if args.username and args.password:
+        client.username_pw_set(args.username, args.password)
+        print(f"Using authentication: {args.username}")
+
     if args.ca:
         print(f"Connecting with TLS (CA: {args.ca})")
         client.tls_set(ca_certs=args.ca, certfile=args.cert, keyfile=args.key)
+    else:
+        # Use system CA certificates. 11/01 권오빈 추가
+        import ssl
+        context = ssl.create_default_context(ssl.Purpose.SERVER_AUTH)
+        context.load_verify_locations(capath="/etc/ssl/certs")
+        client.tls_set_context(context)
+        print("Using system CA certificates (/etc/ssl/certs)")
 
     try:
         client.connect(args.host, args.port, 60)
