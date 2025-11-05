@@ -1,150 +1,150 @@
 # visualize_results.py
 import argparse
 import pandas as pd
-import seaborn as sns
 import matplotlib.pyplot as plt
+import seaborn as sns
 import os
+import numpy as np
 import glob
 
-sns.set_theme(style="whitegrid")
-
-def plot_summary_comparisons(df, output_dir):
-    """요약 CSV를 기반으로 프로토콜/암호별 평균 성능을 비교합니다."""
-    if df.empty:
-        print("Summary data is empty, skipping summary plots.")
-        return
-
-    plt.figure(figsize=(15, 8))
-    sns.barplot(x='proto', y='avg_fps', hue='cipher', data=df, palette='viridis')
-    plt.title('Average FPS Comparison', fontsize=16)
-    plt.ylabel('Average FPS')
-    plt.xlabel('Protocol')
-    plt.tight_layout()
-    plt.savefig(os.path.join(output_dir, "summary_fps_comparison.png"))
-    plt.close()
-
-    plt.figure(figsize=(15, 8))
-    sns.barplot(x='proto', y='rtt_p50_ms', hue='cipher', data=df, palette='plasma')
-    plt.title('Median RTT (p50, ms) Comparison', fontsize=16)
-    plt.ylabel('Median RTT (p50, ms)')
-    plt.xlabel('Protocol')
-    plt.tight_layout()
-    plt.savefig(os.path.join(output_dir, "summary_rtt_comparison.png"))
-    plt.close()
-    print(f"Saved summary plots to {output_dir}")
-
-def plot_timeseries(log_dir, output_dir):
-    """상세 로그들을 기반으로 시계열 꺾은선 그래프를 생성합니다."""
-    log_files = glob.glob(os.path.join(log_dir, "*.csv"))
-    if not log_files:
-        print(f"No time-series logs found in {log_dir}. Skipping time-series plots.")
-        return
-
-    all_data = []
-    for f in log_files:
-        df = pd.read_csv(f)
-        run_name = os.path.basename(f).replace(".csv", "")
-        df['run'] = run_name
-        all_data.append(df)
+def get_statistics(row, column_name):
+    # Use glob to find the log file, accommodating for variations like _(6)
+    pattern = f"timeseries_logs/{row['video']}_{row['proto']}_{row['cipher']}*.csv"
+    log_files = glob.glob(pattern)
     
-    if not all_data:
-        print("No data to plot in time-series logs.")
-        return
+    if not log_files:
+        return pd.Series([np.nan, np.nan, np.nan, np.nan])
         
-    full_df = pd.concat(all_data, ignore_index=True)
+    log_filename = log_files[0] # Use the first match
 
-    metrics_to_plot = ["cpu_pct", "gpu_pct", "mem_pct", "interval_fps", "rtt_ms"]
-    for metric in metrics_to_plot:
-        if metric not in full_df.columns or full_df[metric].isnull().all():
-            print(f"Skipping plot for '{metric}' as it contains no data.")
-            continue
+    try:
+        ts_df = pd.read_csv(log_filename)
+        # Assuming 5s warmup, filter out initial data
+        ts_df = ts_df[ts_df['time_sec'] > 5]
+        if column_name in ts_df.columns and not ts_df[column_name].empty:
+            # Replace 0s with NaN before calculating stats to avoid them being min
+            values = ts_df[column_name].replace(0, np.nan).dropna()
+            if values.empty:
+                return pd.Series([np.nan, np.nan, np.nan, np.nan])
 
-        plt.figure(figsize=(18, 9))
-        sns.lineplot(data=full_df, x='time_sec', y=metric, hue='run', marker='o', markersize=4, linestyle='-')
-        plt.title(f'Time-Series: {metric.upper()} Over Time', fontsize=16)
-        plt.xlabel('Time (seconds)')
-        plt.ylabel(metric)
-        plt.legend(title='Test Run', bbox_to_anchor=(1.05, 1), loc='upper left')
-        plt.tight_layout(rect=[0, 0, 0.85, 1])
-        save_path = os.path.join(output_dir, f"timeseries_{metric}.png")
-        plt.savefig(save_path)
-        plt.close()
-        print(f"Saved time-series plot for {metric} to {save_path}")
-
-def plot_percentile_comparisons(df, output_dir):
-    """Percentile CSV를 기반으로 p50, p95, p99 비교 그래프를 생성합니다."""
-    if df.empty:
-        print("Percentile data is empty, skipping percentile plots.")
-        return
-
-    metrics = [
-        ('cpu', 'CPU Usage (%)', ['cpu_p50', 'cpu_p95', 'cpu_p99']),
-        ('gpu', 'GPU Usage (%)', ['gpu_p50', 'gpu_p95', 'gpu_p99']),
-        ('mem', 'Memory Usage (%)', ['mem_p50', 'mem_p95', 'mem_p99']),
-        ('fps', 'FPS', ['fps_p50', 'fps_p95', 'fps_p99']),
-    ]
-
-    for metric_key, metric_title, columns in metrics:
-        if not all(col in df.columns for col in columns):
-            print(f"Skipping {metric_key} percentile plot - missing columns")
-            continue
-
-        # Reshape data for grouped bar plot
-        plot_data = []
-        for _, row in df.iterrows():
-            label = f"{row['proto']}_{row['cipher']}"
-            plot_data.append({'config': label, 'p50': row[columns[0]], 'p95': row[columns[1]], 'p99': row[columns[2]]})
-
-        plot_df = pd.DataFrame(plot_data)
-
-        fig, ax = plt.subplots(figsize=(12, 6))
-        x = range(len(plot_df))
-        width = 0.25
-
-        ax.bar([i - width for i in x], plot_df['p50'], width, label='p50', alpha=0.8)
-        ax.bar([i for i in x], plot_df['p95'], width, label='p95', alpha=0.8)
-        ax.bar([i + width for i in x], plot_df['p99'], width, label='p99', alpha=0.8)
-
-        ax.set_xlabel('Configuration')
-        ax.set_ylabel(metric_title)
-        ax.set_title(f'{metric_title} Percentiles Comparison')
-        ax.set_xticks(x)
-        ax.set_xticklabels(plot_df['config'], rotation=45, ha='right')
-        ax.legend()
-        ax.grid(axis='y', alpha=0.3)
-
-        plt.tight_layout()
-        save_path = os.path.join(output_dir, f"percentile_{metric_key}_comparison.png")
-        plt.savefig(save_path)
-        plt.close()
-        print(f"Saved percentile plot for {metric_key} to {save_path}")
+            p25 = values.quantile(0.25)
+            p75 = values.quantile(0.75)
+            min_val = values.min()
+            max_val = values.max()
+            return pd.Series([min_val, p25, p75, max_val])
+        else:
+            return pd.Series([np.nan, np.nan, np.nan, np.nan])
+    except Exception:
+        return pd.Series([np.nan, np.nan, np.nan, np.nan])
 
 def main():
-    parser = argparse.ArgumentParser(description="Visualize benchmark results.")
-    parser.add_argument("summary_csv_file", help="Path to the input CSV file (e.g., out_results.csv)")
-    parser.add_argument("--log-dir", default="timeseries_logs", help="Directory containing the time-series log files")
-    parser.add_argument("--out-dir", default="plots", help="Directory to save plot images")
+    sns.set(font_scale=1.5, style="whitegrid")
+    parser = argparse.ArgumentParser(description="Visualize benchmark results from a CSV file.")
+    parser.add_argument("csv_file", help="Path to the input CSV file.")
     args = parser.parse_args()
 
-    os.makedirs(args.out_dir, exist_ok=True)
+    if not os.path.exists(args.csv_file):
+        print(f"Error: File not found at {args.csv_file}")
+        return
 
-    if os.path.exists(args.summary_csv_file):
-        summary_df = pd.read_csv(args.summary_csv_file)
-        plot_summary_comparisons(summary_df, args.out_dir)
-    else:
-        print(f"Summary file not found: {args.summary_csv_file}")
+    df = pd.read_csv(args.csv_file)
 
-    # Plot percentile comparisons
-    percentile_file = args.summary_csv_file.replace(".csv", "_percentiles.csv")
-    if os.path.exists(percentile_file):
-        percentile_df = pd.read_csv(percentile_file)
-        plot_percentile_comparisons(percentile_df, args.out_dir)
-    else:
-        print(f"Percentile file not found: {percentile_file}")
+    output_dir = "plots"
+    os.makedirs(output_dir, exist_ok=True)
 
-    plot_timeseries(args.log_dir, args.out_dir)
+    if 'proto' in df.columns:
+        df = df[df['proto'] == 'https']
 
-    print("\nAll plots generated.")
+    if df.empty:
+        print("No data found for the 'https' protocol in the CSV file.")
+        return
+
+    # Calculate statistics from timeseries logs
+    df[['fps_min', 'fps_p25', 'fps_p75', 'fps_max']] = df.apply(get_statistics, axis=1, column_name='interval_fps')
+    df[['rtt_min', 'rtt_p25', 'rtt_p75', 'rtt_max']] = df.apply(get_statistics, axis=1, column_name='rtt_ms')
+    df.dropna(subset=['fps_min', 'rtt_min'], inplace=True)
+
+    if df.empty:
+        print("Could not calculate statistics. Check timeseries logs.")
+        return
+
+    unique_ciphers = sorted(df['cipher'].unique())
+    spring_warm_palette = ["#f56368", "#f7de6f", "#51daa7", "#7c8ed6", "#d473c7"]
+    palette = sns.color_palette(spring_warm_palette, len(unique_ciphers))
+    cipher_color_map = {cipher: color for cipher, color in zip(unique_ciphers, palette)}
+
+    # --- Plotting FPS Custom Box Plot ---
+    plt.figure(figsize=(12, 7))
+    x_pos = np.arange(len(unique_ciphers))
+    
+    # Draw whiskers (min to max lines)
+    for i, cipher in enumerate(unique_ciphers):
+        stats = df[df['cipher'] == cipher].iloc[0]
+        plt.vlines(x=i, ymin=stats['fps_min'], ymax=stats['fps_max'], color=cipher_color_map[cipher], linewidth=2)
+
+    # Draw IQR bars (p25 to p75)
+    bar_heights = df['fps_p75'] - df['fps_p25']
+    bar_bottoms = df['fps_p25']
+    plt.bar(x=x_pos, height=bar_heights, bottom=bar_bottoms, color=[cipher_color_map[c] for c in unique_ciphers], alpha=0.7, width=0.5)
+
+    plt.xlabel('Cipher Suite')
+    plt.ylabel('FPS')
+    plt.title('FPS Distribution (Min, P25-P75, Max) per Cipher Suite')
+    plt.xticks(x_pos, unique_ciphers, rotation=45, ha='right')
+    
+    min_val = df['fps_min'].min()
+    max_val = df['fps_max'].max()
+    plt.ylim(bottom=min_val * 0.9, top=max_val * 1.1)
+
+    plt.tight_layout()
+    plt.savefig(os.path.join(output_dir, "fps_range_comparison.png"))
+    plt.close()
+    print(f"Saved plot: {os.path.join(output_dir, 'fps_range_comparison.png')}")
+
+    # --- Plotting RTT Custom Box Plot ---
+    plt.figure(figsize=(12, 7))
+
+    for i, cipher in enumerate(unique_ciphers):
+        stats = df[df['cipher'] == cipher].iloc[0]
+        plt.vlines(x=i, ymin=stats['rtt_min'], ymax=stats['rtt_max'], color=cipher_color_map[cipher], linewidth=2)
+
+    bar_heights = df['rtt_p75'] - df['rtt_p25']
+    bar_bottoms = df['rtt_p25']
+    plt.bar(x=x_pos, height=bar_heights, bottom=bar_bottoms, color=[cipher_color_map[c] for c in unique_ciphers], alpha=0.7, width=0.5)
+
+    plt.xlabel('Cipher Suite')
+    plt.ylabel('RTT (ms)')
+    plt.title('RTT Distribution (Min, P25-P75, Max) per Cipher Suite')
+    plt.xticks(x_pos, unique_ciphers, rotation=45, ha='right')
+
+    min_val = df['rtt_min'].min()
+    max_val = df['rtt_max'].max()
+    plt.ylim(bottom=min_val * 0.9, top=max_val * 1.1)
+
+    plt.tight_layout()
+    plt.savefig(os.path.join(output_dir, "rtt_range_comparison.png"))
+    plt.close()
+    print(f"Saved plot: {os.path.join(output_dir, 'rtt_range_comparison.png')}")
+
+    # --- Keep other plots as they were ---
+    metrics_to_plot = {
+        'cpu_pct': 'CPU Usage (%)',
+        'gpu_pct': 'GPU Usage (%)',
+    }
+    for metric, title in metrics_to_plot.items():
+        plt.figure(figsize=(10, 6))
+        ax = sns.barplot(x='cipher', y=metric, data=df, hue='cipher', dodge=False, palette=palette)
+        if metric == 'cpu_pct':
+            plt.ylim(bottom=200)
+        plt.xlabel('Cipher Suite')
+        plt.ylabel(title)
+        plt.title(f'{title} per Cipher Suite')
+        plt.xticks(rotation=45, ha='right')
+        plt.tight_layout()
+        plot_filename = os.path.join(output_dir, f"{metric}_comparison.png")
+        plt.savefig(plot_filename)
+        plt.close()
+        print(f"Saved plot: {plot_filename}")
 
 if __name__ == "__main__":
     main()

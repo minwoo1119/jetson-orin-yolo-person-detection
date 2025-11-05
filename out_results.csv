@@ -1,7 +1,6 @@
 board,video,proto,cipher,avg_fps,cpu_pct,gpu_pct,mem_pct,gpu_mem_pct,rtt_p50_ms,rtt_p95_ms,rtt_p99_ms,note
-jetson_orin_nano,Typical,dtls,aesgcm,8.742,103.35,29.20,12.55,0.00,7.000,22.282,49.501,
-jetson_orin_nano,Typical,dtls,aes256gcm,8.756,101.76,25.54,12.62,0.00,5.666,13.300,39.812,
-jetson_orin_nano,Typical,dtls,chacha20,8.781,101.67,19.75,12.64,0.00,5.607,13.095,37.885,
-jetson_orin_nano,Typical,mqtt,aesgcm,8.806,102.30,24.10,12.65,0.00,0.000,0.000,0.000,no rtt results
-jetson_orin_nano,Typical,mqtt,aes256gcm,8.671,101.07,25.48,12.69,0.00,0.000,0.000,0.000,no rtt results
-jetson_orin_nano,Typical,mqtt,chacha20,8.612,100.90,29.73,12.64,0.00,0.000,0.000,0.000,no rtt results
+jetson_orin_nano,Typical,https,aesgcm,3.085,240.66,13.63,32.88,0.00,14.150,31.118,50.135,
+jetson_orin_nano,Typical,https,aes256gcm,3.579,253.84,15.57,40.45,0.00,17.056,33.579,54.009,
+jetson_orin_nano,Typical,https,chacha20,3.580,257.73,15.91,41.28,0.00,16.751,33.510,59.665,
+jetson_orin_nano,Typical,https,aesccm,3.417,250.76,13.99,41.83,0.00,17.204,35.325,57.149,
+jetson_orin_nano,Typical,https,aesccm8,3.245,240.97,16.16,41.25,0.00,14.931,34.997,57.112,

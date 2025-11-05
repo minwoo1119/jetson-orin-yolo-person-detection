@@ -40,6 +40,7 @@ def main():
     matrix = cfg.get("matrix", {})
     yolo_cfg = cfg.get("yolo", {})
     model_path = yolo_cfg.get("model_path", "yolo_model/yolov8n.pt")
+    num_models = int(yolo_cfg.get("num_models", 1))  # 기본값 1
     videos = yolo_cfg.get("videos", {})
 
     if not videos:
@@ -83,25 +84,54 @@ def main():
                                 ca=ca, cert=cert, key=key, oscore_context=oscore_context
                             )
 
-                            yres = yolo.run_video(video_path, duration_sec=duration, overlay=False, per_second_writer=per_second_writer)
+                            # Get the lock from adapter for thread-safe RTT data access
+                            rtt_data_lock = getattr(adapter, 'lock', None)
 
+                            # Pass RTT data and lock to YOLORunner (CRITICAL FIX!)
+                            yres = yolo.run_video(
+                                video_path,
+                                duration_sec=duration,
+                                warmup_sec=warmup,
+                                rtt_data=lines,
+                                rtt_data_lock=rtt_data_lock,
+                                overlay=False,
+                                per_second_writer=per_second_writer,
+                                num_models=num_models
+                            )
+
+                            # Wait for network thread to finish (with proper timeout)
                             if isinstance(handle, threading.Thread):
-                                handle.join(timeout=10)
+                                handle.join(timeout=duration + 10)
+                                if handle.is_alive():
+                                    print(f"Warning: Network thread still running after {duration + 10}s timeout")
 
                             if hasattr(adapter, 'stop_load'):
                                 adapter.stop_load()
 
+                            # Calculate RTT percentiles with thread-safe access
                             rtt_p50, rtt_p95, rtt_p99 = 0, 0, 0
                             note = ""
                             if lines and isinstance(lines, list) and len(lines) > 0:
-                                # lines는 [(rtt_seconds, timestamp), ...] 형식
-                                # 첫 번째 요소(rtt_seconds)만 추출하여 ms로 변환
-                                rtt_ms = [r[0] * 1000 if isinstance(r, tuple) else r * 1000 for r in lines]
-                                rtt_p50 = np.percentile(rtt_ms, 50)
-                                rtt_p95 = np.percentile(rtt_ms, 95)
-                                rtt_p99 = np.percentile(rtt_ms, 99)
+                                # Thread-safe read of RTT results
+                                if rtt_data_lock:
+                                    with rtt_data_lock:
+                                        rtt_ms = [r[0] * 1000 if isinstance(r, tuple) else r * 1000 for r in lines]
+                                else:
+                                    rtt_ms = [r[0] * 1000 if isinstance(r, tuple) else r * 1000 for r in lines]
+
+                                if len(rtt_ms) > 0:
+                                    rtt_p50 = np.percentile(rtt_ms, 50)
+                                    rtt_p95 = np.percentile(rtt_ms, 95)
+                                    rtt_p99 = np.percentile(rtt_ms, 99)
+                                else:
+                                    note = "no rtt results"
                             else:
                                 note = "no rtt results"
+
+                            # Print error statistics if available
+                            if hasattr(adapter, 'get_error_stats'):
+                                error_stats = adapter.get_error_stats()
+                                print(f"Network stats: {error_stats}")
 
                             w.writerow([board, video_name, proto, cipher,
                                         f"{yres['avg_fps']:.3f}", f"{yres['cpu_pct']:.2f}",
@@ -114,6 +144,8 @@ def main():
                     except Exception as e:
                         note = f"run failed: {e}"
                         print(f"[FAIL] {note}")
+                        import traceback
+                        traceback.print_exc()
                         w.writerow([board, video_name, proto, cipher, *([0]*9), note]); out.flush()
                         if isinstance(handle, threading.Thread):
                             handle.join(timeout=1)

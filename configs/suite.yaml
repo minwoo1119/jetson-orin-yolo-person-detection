@@ -4,8 +4,8 @@ board: "jetson_orin_nano"   # "raspberry_pi" | "jetson_orin_nano" | "tda4um"
 # === 러너 공통 파라미터 ===
 duration_sec: 60
 warmup_sec: 5
-payload_size: 2048  
-send_rate: 10
+payload_size: 4096  
+send_rate: 1000
 
 # bench_client(HTTPS/DTLS용 C++ 바이너리) 경로
 bench_client_path: "/opt/bench/bench_client"
@@ -53,5 +53,6 @@ matrix:
 # === YOLO 설정 ===
 yolo:
   model_path: "yolo_model/yolo11n.pt"
+  num_models: 6 # CPU 점유율을 높이기 위해 병렬로 실행할 모델 개수
   videos:
-    Typical: "videos/KITTI-19-raw.webm"
+    Typical: "videos/MOT20-05.mp4"
