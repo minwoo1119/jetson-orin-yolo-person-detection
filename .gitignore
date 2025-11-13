@@ -1,6 +1,6 @@
 # Experiment results
 results/
-
+videos/
 # Python
 __pycache__/
 *.py[cod]
