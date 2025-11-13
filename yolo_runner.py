@@ -151,7 +151,6 @@ class YOLORunner:
             thread_total_frames += 1
 
         cap.release()
-        print(f"Worker thread processed {thread_total_frames} frames")
 
     def run_video(self, video_path, duration_sec, warmup_sec=0, rtt_data=None, rtt_data_lock=None, overlay=False, per_second_writer=None, num_models=1):
         """

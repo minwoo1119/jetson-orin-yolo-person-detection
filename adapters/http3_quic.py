@@ -9,6 +9,7 @@ from typing import Deque, Dict, Optional, List, cast, Tuple
 from collections import deque
 
 from .base import ProtocolAdapter
+from .common import BENCH_HDR_FORMAT, BENCH_HDR_SIZE, BENCH_HDR_MAGIC, BENCH_HDR_VERSION, TLS13_CIPHERS
 from aioquic.asyncio.client import connect
 from aioquic.asyncio.protocol import QuicConnectionProtocol
 from aioquic.h3.connection import H3_ALPN, H3Connection
@@ -16,42 +17,56 @@ from aioquic.h3.events import DataReceived, H3Event
 from aioquic.quic.configuration import QuicConfiguration
 from aioquic.quic.events import QuicEvent
 
-FIXED_PACKET_SIZE = 64
-BENCH_HDR_FORMAT = "!IHQQI"
-BENCH_HDR_SIZE = struct.calcsize(BENCH_HDR_FORMAT)
-BENCH_HDR_MAGIC = 0xDEADBEEF
-BENCH_HDR_VERSION = 1
-
 class H3ClientProtocol(QuicConnectionProtocol):
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, error_counter=None, lock=None, warmup=0, start_time=None, **kwargs):
         super().__init__(*args, **kwargs)
         self._http: Optional[H3Connection] = None
-        self.rtt_results: Deque[Tuple[float, float]] = deque()
         self._sent_packets: Dict[int, int] = {}
-        self._start_time: float = 0
+        self._error_counter = error_counter
+        self._lock = lock
+        self._warmup = warmup
+        self._start_time = start_time
 
     def quic_event_received(self, event: QuicEvent):
         if self._http is None:
             self._http = H3Connection(self._quic)
-        
+
         for h3_event in self._http.handle_event(event):
             if isinstance(h3_event, DataReceived):
                 if h3_event.stream_id in self._sent_packets:
                     t_send_ns = self._sent_packets[h3_event.stream_id]
+                    elapsed = time.monotonic() - self._start_time
+
                     if len(h3_event.data) >= BENCH_HDR_SIZE:
                         try:
                             magic, _, seq, _, _ = struct.unpack(BENCH_HDR_FORMAT, h3_event.data[:BENCH_HDR_SIZE])
                             if magic == BENCH_HDR_MAGIC:
                                 rtt_ns = time.monotonic_ns() - t_send_ns
-                                self.rtt_results.append((rtt_ns / 1e9, time.monotonic()))
+                                if elapsed > self._warmup and self._error_counter is not None and self._lock is not None:
+                                    with self._lock:
+                                        self._error_counter['rtt_results'].append((rtt_ns / 1e9, time.time()))
+                                        self._error_counter['success_count'] += 1
                                 del self._sent_packets[h3_event.stream_id]
+                            else:
+                                if self._error_counter is not None and self._lock is not None:
+                                    with self._lock:
+                                        self._error_counter['mismatch_count'] += 1
                         except struct.error:
-                            pass
+                            if self._error_counter is not None and self._lock is not None:
+                                with self._lock:
+                                    self._error_counter['unpack_error_count'] += 1
+                    else:
+                        if self._error_counter is not None and self._lock is not None:
+                            with self._lock:
+                                self._error_counter['short_response_count'] += 1
 
     def record_sent_packet(self, stream_id: int, t_send_ns: int):
         self._sent_packets[stream_id] = t_send_ns
 
-async def client_sender(protocol: H3ClientProtocol, host: str, size: int, rate: int, duration: int, warmup: int):
+async def client_sender(protocol: H3ClientProtocol, host: str, size: int, rate: int, duration: int):
+    """
+    Send HTTP/3 packets and collect RTT measurements.
+    """
     http = protocol._http
     period = 1.0 / rate
     protocol._start_time = time.monotonic()
@@ -70,55 +85,103 @@ async def client_sender(protocol: H3ClientProtocol, host: str, size: int, rate: 
             (b"content-length", str(len(packet)).encode()),
         ])
         http.send_data(stream_id=stream_id, data=packet, end_stream=True)
-        
-        if elapsed > warmup:
-            protocol.record_sent_packet(stream_id, t_send_ns)
+
+        protocol.record_sent_packet(stream_id, t_send_ns)
 
         protocol.transmit()
         seq += 1
         await asyncio.sleep(period)
 
-    await asyncio.sleep(2)
+    await asyncio.sleep(2)  # Wait for final responses
     protocol.close()
 
 class HTTP3Adapter(ProtocolAdapter):
     name = "http3"
 
     def __init__(self):
-        try: import aioquic
-        except ImportError: raise RuntimeError("aioquic is not installed. Run 'pip install aioquic'")
+        try:
+            import aioquic
+        except ImportError:
+            raise RuntimeError("aioquic is not installed. Run 'pip install aioquic'")
+
+        # Thread safety
+        self.lock = threading.Lock()
+        self.error_counter = {
+            'rtt_results': [],
+            'success_count': 0,
+            'mismatch_count': 0,
+            'short_response_count': 0,
+            'unpack_error_count': 0,
+        }
+        self.stop_event = threading.Event()
 
     async def _run_async(self, host, port, cipher, size, rate, duration, warmup, ca):
+        """Run async HTTP/3 client."""
         config = QuicConfiguration(is_client=True, alpn_protocols=H3_ALPN)
         if ca and os.path.exists(ca):
             config.load_verify_locations(cafile=ca)
 
-        print(f"[DEBUG] HTTP3/QUIC attempting connection to {host}:{port}")
         try:
-            async with connect(host, port, configuration=config, create_protocol=H3ClientProtocol) as protocol:
+            def create_protocol_with_params(*args, **kwargs):
+                return H3ClientProtocol(
+                    *args,
+                    error_counter=self.error_counter,
+                    lock=self.lock,
+                    warmup=warmup,
+                    start_time=None,
+                    **kwargs
+                )
+
+            async with connect(host, port, configuration=config, create_protocol=create_protocol_with_params) as protocol:
                 protocol = cast(H3ClientProtocol, protocol)
-                print(f"[SUCCESS] HTTP3/QUIC connected to {host}:{port}")
-                await client_sender(protocol, host, size, rate, duration, warmup)
-                return list(protocol.rtt_results)
-        except ConnectionError as e:
-            print(f"[ERROR] HTTP3/QUIC ConnectionError: {e}")
-            return []
-        except TimeoutError as e:
-            print(f"[ERROR] HTTP3/QUIC timeout: {e}")
-            return []
-        except OSError as e:
-            print(f"[ERROR] HTTP3/QUIC network error: {e}")
-            return []
+                await client_sender(protocol, host, size, rate, duration)
+        except (ConnectionError, TimeoutError, OSError) as e:
+            with self.lock:
+                self.error_counter['other_error_count'] += 1
         except Exception as e:
-            print(f"[ERROR] HTTP3/QUIC failed with {type(e).__name__}: {e}")
-            return []
+            with self.lock:
+                self.error_counter['other_error_count'] += 1
 
     def run_load(self, host, port, cipher, size, rate, duration, warmup, ca=None, **kwargs):
-        results_list = []
-        def thread_target():
-            rtt_results = asyncio.run(self._run_async(host, port, cipher, FIXED_PACKET_SIZE, rate, duration, warmup, ca))
-            results_list.extend(rtt_results)
+        """
+        Run load test using HTTP/3 protocol.
 
-        thread = threading.Thread(target=thread_target, daemon=True)
+        Returns:
+            tuple: (thread, rtt_results_list) where rtt_results_list is thread-safe
+        """
+        # Reset counters
+        with self.lock:
+            self.error_counter['rtt_results'].clear()
+            self.error_counter['success_count'] = 0
+            self.error_counter['mismatch_count'] = 0
+            self.error_counter['short_response_count'] = 0
+            self.error_counter['unpack_error_count'] = 0
+        self.stop_event.clear()
+
+        def thread_target():
+            try:
+                asyncio.run(self._run_async(host, port, cipher, size, rate, duration, warmup, ca))
+            except Exception as e:
+                print(f"HTTP/3 adapter thread error: {e}")
+            finally:
+                self.stop_event.set()
+
+        thread = threading.Thread(target=thread_target, daemon=False)
         thread.start()
-        return thread, results_list
+
+        # Return thread and reference to results list (thread-safe with lock)
+        return thread, self.error_counter['rtt_results']
+
+    def stop_load(self):
+        """Stop the load test gracefully."""
+        self.stop_event.set()
+
+    def get_error_stats(self):
+        """Get error statistics (thread-safe)."""
+        with self.lock:
+            return {
+                'success_count': self.error_counter['success_count'],
+                'mismatch_count': self.error_counter['mismatch_count'],
+                'short_response_count': self.error_counter['short_response_count'],
+                'unpack_error_count': self.error_counter['unpack_error_count'],
+            }

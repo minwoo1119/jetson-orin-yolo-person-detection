@@ -7,15 +7,15 @@ import os
 import numpy as np
 import glob
 
-def get_statistics(row, column_name):
+def get_statistics(row, column_name, timeseries_dir):
     # Use glob to find the log file, accommodating for variations like _(6)
-    pattern = f"timeseries_logs/{row['video']}_{row['proto']}_{row['cipher']}*.csv"
+    pattern = f"{timeseries_dir}/{row['video']}_{row['proto']}_{row['cipher']}*.csv"
     log_files = glob.glob(pattern)
-    
+
     if not log_files:
         return pd.Series([np.nan, np.nan, np.nan, np.nan])
-        
-    log_filename = log_files[0] # Use the first match
+
+    log_filename = log_files[0]  # Use the first match
 
     try:
         ts_df = pd.read_csv(log_filename)
@@ -39,29 +39,44 @@ def get_statistics(row, column_name):
 
 def main():
     sns.set(font_scale=1.5, style="whitegrid")
-    parser = argparse.ArgumentParser(description="Visualize benchmark results from a CSV file.")
-    parser.add_argument("csv_file", help="Path to the input CSV file.")
+    parser = argparse.ArgumentParser(description="Visualize benchmark results from a timestamped result directory.")
+    parser.add_argument("--result-dir", required=True, help="Path to the result directory (e.g., results/20250105_120000_baseline)")
+    parser.add_argument("--protocol", help="Filter by specific protocol (e.g., https, mqtt, dtls). If not specified, all protocols will be included.")
     args = parser.parse_args()
 
-    if not os.path.exists(args.csv_file):
-        print(f"Error: File not found at {args.csv_file}")
+    result_dir = args.result_dir
+    if not os.path.exists(result_dir):
+        print(f"Error: Result directory not found at {result_dir}")
         return
 
-    df = pd.read_csv(args.csv_file)
+    # Find results.csv in the result directory
+    csv_file = os.path.join(result_dir, "results.csv")
+    if not os.path.exists(csv_file):
+        print(f"Error: results.csv not found in {result_dir}")
+        return
 
-    output_dir = "plots"
+    df = pd.read_csv(csv_file)
+
+    # Set up directories
+    timeseries_dir = os.path.join(result_dir, "timeseries_logs")
+    output_dir = os.path.join(result_dir, "plots")
     os.makedirs(output_dir, exist_ok=True)
 
-    if 'proto' in df.columns:
-        df = df[df['proto'] == 'https']
+    # Filter by protocol if specified
+    if args.protocol:
+        if 'proto' in df.columns:
+            df = df[df['proto'] == args.protocol]
+            if df.empty:
+                print(f"No data found for protocol '{args.protocol}' in the CSV file.")
+                return
 
     if df.empty:
-        print("No data found for the 'https' protocol in the CSV file.")
+        print("No data to visualize.")
         return
 
     # Calculate statistics from timeseries logs
-    df[['fps_min', 'fps_p25', 'fps_p75', 'fps_max']] = df.apply(get_statistics, axis=1, column_name='interval_fps')
-    df[['rtt_min', 'rtt_p25', 'rtt_p75', 'rtt_max']] = df.apply(get_statistics, axis=1, column_name='rtt_ms')
+    df[['fps_min', 'fps_p25', 'fps_p75', 'fps_max']] = df.apply(get_statistics, axis=1, column_name='interval_fps', timeseries_dir=timeseries_dir)
+    df[['rtt_min', 'rtt_p25', 'rtt_p75', 'rtt_max']] = df.apply(get_statistics, axis=1, column_name='rtt_ms', timeseries_dir=timeseries_dir)
     df.dropna(subset=['fps_min', 'rtt_min'], inplace=True)
 
     if df.empty:
@@ -76,7 +91,7 @@ def main():
     # --- Plotting FPS Custom Box Plot ---
     plt.figure(figsize=(12, 7))
     x_pos = np.arange(len(unique_ciphers))
-    
+
     # Draw whiskers (min to max lines)
     for i, cipher in enumerate(unique_ciphers):
         stats = df[df['cipher'] == cipher].iloc[0]
@@ -91,7 +106,7 @@ def main():
     plt.ylabel('FPS')
     plt.title('FPS Distribution (Min, P25-P75, Max) per Cipher Suite')
     plt.xticks(x_pos, unique_ciphers, rotation=45, ha='right')
-    
+
     min_val = df['fps_min'].min()
     max_val = df['fps_max'].max()
     plt.ylim(bottom=min_val * 0.9, top=max_val * 1.1)
@@ -145,6 +160,8 @@ def main():
         plt.savefig(plot_filename)
         plt.close()
         print(f"Saved plot: {plot_filename}")
+
+    print(f"\nAll plots saved to: {output_dir}")
 
 if __name__ == "__main__":
     main()

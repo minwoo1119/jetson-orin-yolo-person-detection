@@ -111,21 +111,11 @@ class MQTTAdapter(ProtocolAdapter):
             context.load_cert_chain(certfile=cert, keyfile=key)
         self.client.tls_set_context(context)
 
-        print(f"[DEBUG] MQTT attempting connection to {host}:{port}")
         try:
             self.client.connect(host, port, 60)
-            print(f"[SUCCESS] MQTT connected to {host}:{port}")
-        except ConnectionRefusedError as e:
-            print(f"[ERROR] MQTT connection refused: {e}")
-            raise RuntimeError(f"MQTT connection failed: {e}")
-        except TimeoutError as e:
-            print(f"[ERROR] MQTT connection timeout: {e}")
-            raise RuntimeError(f"MQTT connection failed: timed out")
-        except OSError as e:
-            print(f"[ERROR] MQTT network error: {e}")
+        except (ConnectionRefusedError, TimeoutError, OSError) as e:
             raise RuntimeError(f"MQTT connection failed: {e}")
         except Exception as e:
-            print(f"[ERROR] MQTT connection failed with {type(e).__name__}: {e}")
             raise RuntimeError(f"MQTT connection failed: {e}")
 
         self.client.subscribe("bench/echo/response", qos=0)

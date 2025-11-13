@@ -1,11 +1,24 @@
 # === 보드 라벨 ===
 board: "jetson_orin_nano"   # "raspberry_pi" | "jetson_orin_nano" | "tda4um"
 
+# === 실험 식별자 (선택) ===
+# 실험 결과를 구분하기 위한 라벨. 생략하면 타임스탬프만 사용됩니다.
+# 예: "baseline", "optimized", "test1", etc.
+experiment_label: ""
+
 # === 러너 공통 파라미터 ===
 duration_sec: 60
 warmup_sec: 5
-payload_size: 4096  
-send_rate: 1000
+
+# 패킷 크기 목록 (bytes) - 여러 값을 테스트하려면 리스트로 설정
+# 단일 값: payload_sizes: [4096]
+# 여러 값: payload_sizes: [1024, 4096, 16384, 65536]
+payload_sizes: [1024,2048,4096]
+
+# 초당 전송률 목록 (packets per second) - 여러 값을 테스트하려면 리스트로 설정
+# 단일 값: send_rates: [1000]
+# 여러 값: send_rates: [100, 500, 1000]
+send_rates: [100, 500, 1000]
 
 # bench_client(HTTPS/DTLS용 C++ 바이너리) 경로
 bench_client_path: "/opt/bench/bench_client"
@@ -45,14 +58,14 @@ bench_server:
 # coap의 oscore는 oscore_context에 설정된 알고리즘(기본: AES-CCM-16-64-128)을 사용합니다.
 matrix:
   https: ["aesgcm", "aes256gcm", "chacha20", "aesccm", "aesccm8"]
-  # dtls : ["aesgcm", "aes256gcm", "chacha20"]
-  # mqtt:  ["aesgcm", "aes256gcm", "chacha20", ]
-  # http3: ["aesgcm", "aes256gcm", "chacha20"]
+  dtls : ["aesgcm", "aes256gcm", "chacha20"]
+  mqtt:  ["aesgcm", "aes256gcm", "chacha20", ]
+  http3: ["aesgcm", "aes256gcm", "chacha20"]
   # # coap:  ["plain", "oscore"]
 
 # === YOLO 설정 ===
 yolo:
   model_path: "yolo_model/yolo11n.pt"
-  num_models: 6 # CPU 점유율을 높이기 위해 병렬로 실행할 모델 개수
+  num_models: 1 # CPU 점유율을 높이기 위해 병렬로 실행할 모델 개수
   videos:
     Typical: "videos/MOT20-05.mp4"

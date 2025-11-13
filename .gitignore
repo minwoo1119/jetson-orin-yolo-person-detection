@@ -1,0 +1,58 @@
+# Experiment results
+results/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# YOLO models (optional - 모델 파일이 크면 제외)
+# yolo_model/*.pt
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# Logs
+*.log
+
+# CSV files (optional - 실험 데이터)
+# *.csv
+
+# Plots (optional - 생성된 그래프)
+# plots/
+
+# Temporary files
+timeseries_logs/
+tmp/
+temp/
